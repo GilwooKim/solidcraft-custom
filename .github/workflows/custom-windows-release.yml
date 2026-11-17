@@ -8,6 +8,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-2025
+    env:
+      CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
       - name: Validate release version
@@ -30,9 +32,9 @@ jobs:
       - name: Smoke test modeling and export
         shell: pwsh
         run: |
-          & ./target/release/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.step
+          & ./target/ci/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.step
           if ($LASTEXITCODE -ne 0) { throw 'STEP smoke test failed.' }
-          & ./target/release/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.stl
+          & ./target/ci/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.stl
           if ($LASTEXITCODE -ne 0) { throw 'STL smoke test failed.' }
       - uses: actions/upload-artifact@v4
         with:
@@ -56,6 +58,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          cd release
+          sums=$(find release -type f -name SHA256SUMS.txt -print -quit)
+          test -n "$sums"
+          cd "$(dirname "$sums")"
           sha256sum --check SHA256SUMS.txt
           gh release create "$RELEASE_TAG" ./* --verify-tag --title "SolidCraft Custom $RELEASE_TAG" --generate-notes

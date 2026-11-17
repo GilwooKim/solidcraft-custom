@@ -6,9 +6,13 @@ $version = (Get-Content (Join-Path $PSScriptRoot 'custom-version.txt') -Raw).Tri
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a stable major.minor.patch version.' }
 if (-not $Iscc) {
     $Iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
-    if (-not $Iscc) { $Iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe' }
+    if (-not $Iscc) {
+        $compiler = Get-ChildItem "${env:ProgramFiles(x86)}/Inno Setup */ISCC.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName | Select-Object -Last 1
+        if ($compiler) { $Iscc = $compiler.FullName }
+    }
 }
-if (-not (Test-Path -LiteralPath $Iscc)) { throw 'Install Inno Setup 6, or pass -Iscc with its ISCC.exe path.' }
+if (-not $Iscc -or -not (Test-Path -LiteralPath $Iscc)) { throw 'Install Inno Setup, or pass -Iscc with its ISCC.exe path.' }
 $previousVersion = $env:SOLIDCRAFT_VERSION
 $previousTarget = $env:CARGO_TARGET_DIR
 Push-Location $repoRoot
@@ -16,18 +20,16 @@ try {
     $env:SOLIDCRAFT_VERSION = $version
     $env:CARGO_TARGET_DIR = Join-Path $repoRoot 'target'
     if (-not $SkipBuild) {
-        # Keep CLI features separate from the desktop's OpenGL features.
-        foreach ($package in 'solidcraft', 'solidcraft-cli') {
-            # Keep optimized dependencies, but avoid whole-program LTO in local/custom builds.
-            & cargo rustc --locked --release -p $package -- -C lto=off
-            if ($LASTEXITCODE -ne 0) { throw "Build failed: $package" }
-        }
+        # This distribution targets Windows desktop PCs, including the CLI. Share the desktop
+        # feature set and optimized kernel; upstream's separate CLI build targets Server Core too.
+        & cargo build --locked --profile ci -p solidcraft -p solidcraft-cli
+        if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
     }
     $stage = Join-Path $repoRoot "target/custom-package/$version"
     $dist = Join-Path $repoRoot "dist/custom/$version"
     New-Item -ItemType Directory -Force -Path $stage,$dist | Out-Null
     foreach ($exe in 'solidcraft.exe','solidcraft-cli.exe') {
-        Copy-Item -LiteralPath (Join-Path $repoRoot "target/release/$exe") -Destination $stage
+        Copy-Item -LiteralPath (Join-Path $repoRoot "target/ci/$exe") -Destination $stage
     }
     foreach ($license in 'LICENSE-MIT','LICENSE-APACHE','NOTICE','THIRD-PARTY-LICENSES.txt') {
         Copy-Item -LiteralPath (Join-Path $repoRoot $license) -Destination $stage
