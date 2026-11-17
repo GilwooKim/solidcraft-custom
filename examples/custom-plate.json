@@ -1,0 +1,13 @@
+{
+  "commands": [
+    {"command": "parameters.change", "params": {"name": "width", "expression": "80 mm"}},
+    {"command": "parameters.change", "params": {"name": "depth", "expression": "50 mm"}},
+    {"command": "parameters.change", "params": {"name": "thickness", "expression": "6 mm"}},
+    {"command": "parameters.change", "params": {"name": "hole_diameter", "expression": "8 mm"}},
+    {"command": "sketch.create", "params": {"plane": "XY", "name": "Plate profile"}},
+    {"command": "sketch.draw.dimensioned", "params": {"command": "sketch.rectangle.center", "params": {"center": [0, 0], "corner": [40, 25]}, "dimensions": {"width": "width", "height": "depth"}}},
+    {"command": "sketch.draw.dimensioned", "params": {"command": "sketch.circle.center", "params": {"center": [0, 0], "diameter": 8}, "dimensions": {"diameter": "hole_diameter"}}},
+    {"command": "sketch.finish", "params": {}},
+    {"command": "solid.extrude", "params": {"distance": "thickness", "body_name": "Custom plate"}}
+  ]
+}

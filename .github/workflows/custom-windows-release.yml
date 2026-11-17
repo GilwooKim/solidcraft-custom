@@ -1,0 +1,61 @@
+name: Custom Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $version = (Get-Content packaging/windows/custom-version.txt -Raw).Trim()
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and custom-version.txt must match.' }
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install packaging tool
+        run: choco install innosetup --yes --no-progress
+      - name: Build and package
+        shell: pwsh
+        run: ./packaging/windows/build-custom.ps1
+      - name: Verify update behavior
+        run: |
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui update::
+      - name: Smoke test modeling and export
+        shell: pwsh
+        run: |
+          & ./target/release/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.step
+          if ($LASTEXITCODE -ne 0) { throw 'STEP smoke test failed.' }
+          & ./target/release/solidcraft-cli.exe run examples/custom-plate.json --out target/custom-plate.stl
+          if ($LASTEXITCODE -ne 0) { throw 'STL smoke test failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: dist/custom/*/*
+          if-no-files-found: error
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installers
+          path: release
+      - name: Publish verified release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" ./* --verify-tag --title "SolidCraft Custom $RELEASE_TAG" --generate-notes

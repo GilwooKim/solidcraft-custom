@@ -1,0 +1,4 @@
+{
+  "en": {"update.auto_install_custom": "Install Windows updates automatically (takes effect next launch)"},
+  "ko": {"update.auto_install_custom": "Windows 업데이트 자동 설치 (다음 실행부터 적용)"}
+}
