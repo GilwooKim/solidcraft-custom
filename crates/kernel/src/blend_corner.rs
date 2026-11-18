@@ -437,11 +437,12 @@ mod tests {
         // using the reported picks, with and without the open cavity visible in the screenshot.
         let picks = [Vec3::new(-5.0, 87.2, 12.5), Vec3::new(-4.283446394180081, 86.48344639418008, -1.5001085324947512)];
         for (base, want) in [(b.clone(), solid), (crate::shell(&b, &[Vec3::new(15.0, 47.2, 25.0)], 1.0).unwrap(), solid - cavity)] {
-            // Each fillet with its tangent chain, as the Fillet feature asks for it by default
-            // (tangent propagation).
+            // Round only the bottom edges here. Propagating through the boundary arcs of
+            // earlier rounds also reaches the vertical corners; that distinct workflow is
+            // checked below, and would already have rounded the requested vertical edge.
             let mut rounded = base;
             for edge in bottom {
-                rounded = fillet(&rounded, &crate::tangent_chain(&rounded, &[edge]).unwrap(), 2.0).unwrap();
+                rounded = fillet(&rounded, &[edge], 2.0).unwrap();
             }
             for selection in [&picks[..1], &picks[..], &[picks[1], picks[0]][..]] {
                 let result = fillet(&rounded, &crate::tangent_chain(&rounded, selection).unwrap(), 2.0).unwrap();
@@ -450,6 +451,41 @@ mod tests {
                 assert_eq!(result.classify_point(Vec3::new(-4.9, 87.1, 10.0)).unwrap(), crate::PointClass::Outside);
                 assert_eq!(result.classify_point(Vec3::new(-4.1, 86.3, 10.0)).unwrap(), crate::PointClass::Inside);
             }
+        }
+    }
+
+    /// Propagation follows an earlier bottom round's quarter-circle boundary into the
+    /// vertical edge. After all four bottom picks every vertical corner is already round.
+    /// At height s in the bottom r, the section is the (l-2r) by (w-2r) rectangle offset
+    /// by a disk of radius rho = sqrt(r²-(s-r)²); above it is the rounded rectangle.
+    #[test]
+    fn issue2422_propagated_bottom_rounds_already_round_the_vertical_corners() {
+        let origin = Vec3::new(-5.0, 7.2, -2.0);
+        let (l, w, h, r) = (40.0, 80.0, 27.0, 2.0);
+        let b = box_solid(origin, origin + Vec3::new(l, w, h)).unwrap();
+        let bottom = [Vec3::new(15.0, 7.2, -2.0), Vec3::new(35.0, 47.2, -2.0), Vec3::new(15.0, 87.2, -2.0), Vec3::new(-5.0, 47.2, -2.0)];
+        let pi = std::f64::consts::PI;
+        let (a, c) = (l - 2.0 * r, w - 2.0 * r);
+        // Integrals over the bottom r: rho = pi*r²/4, rho² = 2*r³/3.
+        let solid = (h - r) * (l * w - (4.0 - pi) * r * r) + a * c * r + (a + c) * pi * r * r / 2.0 + 2.0 * pi * r * r * r / 3.0;
+        let cavity = (l - 2.0) * (w - 2.0) * (h - 1.0);
+        for (base, want) in [(b.clone(), solid), (crate::shell(&b, &[Vec3::new(15.0, 47.2, 25.0)], 1.0).unwrap(), solid - cavity)] {
+            let mut rounded = base;
+            for edge in bottom {
+                rounded = fillet(&rounded, &crate::tangent_chain(&rounded, &[edge]).unwrap(), r).unwrap();
+            }
+            assert!(rounded.validity().is_empty(), "{:?}", rounded.validity());
+            assert!((vol(&rounded) - want).abs() < 1e-6 * want, "{} vs {want}", vol(&rounded));
+            assert_eq!(rounded.classify_point(Vec3::new(-4.9, 87.1, 10.0)).unwrap(), crate::PointClass::Outside);
+            assert_eq!(rounded.classify_point(Vec3::new(-4.1, 86.3, 10.0)).unwrap(), crate::PointClass::Inside);
+            // The old outer corner no longer lies on an edge. In the shelled case its
+            // nearest edge is the still-sharp inner corner, so pick the actual outer seam.
+            let seam = Vec3::new(-5.0, 85.2, 12.5);
+            let error = fillet(&rounded, &crate::tangent_chain(&rounded, &[seam]).unwrap(), r)
+                .map(|_| ())
+                .expect_err("the existing outer tangent seam must be refused")
+                .to_string();
+            assert!(error.contains("is smooth: its faces meet tangentially"), "{error}");
         }
     }
 

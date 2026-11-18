@@ -34,10 +34,12 @@ jobs:
       - name: Verify workbench and language settings
         shell: pwsh
         run: |
-          cargo test --locked --profile ci --lib -p solidcraft-engine luggage::tests
+          cargo test --locked --profile ci --lib -p solidcraft-engine luggage
           if ($LASTEXITCODE -ne 0) { throw 'Workbench command tests failed.' }
           cargo test --locked --profile ci --lib -p solidcraft-ui-egui luggage
           if ($LASTEXITCODE -ne 0) { throw 'Workbench interface tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui promoted_long_labels_have_compact_ribbon_names
+          if ($LASTEXITCODE -ne 0) { throw 'Compact ribbon label tests failed.' }
           cargo test --locked --profile ci --lib -p solidcraft-ui-egui generic_export_
           if ($LASTEXITCODE -ne 0) { throw 'Export picker tests failed.' }
           cargo test --locked --profile ci --lib -p solidcraft-ui-egui custom_install_languages_switch_and_persist
@@ -65,6 +67,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Surface curve domain tests failed.' }
           cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore-step --lib
           if ($LASTEXITCODE -ne 0) { throw 'STEP reader and writer tests failed.' }
+          cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore --test derive_revolved_supports
+          if ($LASTEXITCODE -ne 0) { throw 'Analytic surface recognition tests failed.' }
+      - name: Verify corrected geometry regressions
+        shell: pwsh
+        run: |
+          cargo test --locked --profile ci --lib -p solidcraft-engine a_body_with_round_pieces_swept_under_a_degree_takes_a_later_round
+          if ($LASTEXITCODE -ne 0) { throw 'Short-sweep fillet regression failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-engine a_hole_wider_than_the_part_says_it_removes_all_of_it
+          if ($LASTEXITCODE -ne 0) { throw 'Tangent hole partition regression failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-kernel issue2422_
+          if ($LASTEXITCODE -ne 0) { throw 'Explicit and propagated bottom-round regressions failed.' }
       - name: Smoke test modeling and export
         shell: pwsh
         run: |

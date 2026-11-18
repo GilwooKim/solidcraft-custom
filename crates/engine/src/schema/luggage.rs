@@ -2,6 +2,27 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Create a linked mold-side copy without changing the selected product body.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShrinkageParams {
+    pub body: String,
+    /// Percent relative to mold size, in world X/Y/Z. Equal values give isotropic shrinkage.
+    pub shrinkage_percent: [f64; 3],
+    /// Fixed point in world millimeters.
+    pub origin_mm: [f64; 3],
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ShrinkageResult {
+    pub source_body: String,
+    pub mold_body: String,
+    pub scale_factors: [f64; 3],
+    pub copy_feature: u64,
+    pub scale_feature: u64,
+    pub coordinate_basis: String,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceParams {}

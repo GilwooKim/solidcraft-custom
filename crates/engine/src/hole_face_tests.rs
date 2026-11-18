@@ -592,7 +592,7 @@ fn a_hole_moved_off_the_part_says_it_removes_no_material() {
 }
 
 /// A hole wider than the part takes all of it away and says so (#10702): at creation, and when
-/// a parameter widens it later. A hole across the part's width keeps the rest, silently.
+/// a parameter widens it later. A tangent cut keeps both remaining pieces, silently.
 #[test]
 fn a_hole_wider_than_the_part_says_it_removes_all_of_it() {
     let mut s = Session::default();
@@ -600,12 +600,33 @@ fn a_hole_wider_than_the_part_says_it_removes_all_of_it() {
     run(&mut s, "solid.box", json!({"length": 40, "width": 30, "height": 10, "name": "Plate"}));
     run(&mut s, "solid.hole", json!({"position": [10, 10, 10], "diameter": "hd", "name": "H1"}));
     assert_eq!(said(&s, "H1"), "");
-    assert_eq!(s.model.state().bodies.len(), 1);
+    // In XY the radius-20 circle crosses x = 0 and y = 0, and touches y = 30
+    // at x = 10. The upper-left corner and the right-hand remainder meet only
+    // along (10, 30, z), not through material: two solids, not one pinched shell.
+    assert_eq!(s.model.state().bodies.len(), 2);
+    let inside = |b: &solidcraft_doc::ModelBody, p: Vec3| b.body.classify_point(p).unwrap() == solidcraft_kernel::PointClass::Inside;
+    let bodies = &s.model.state().bodies;
+    let left = bodies.iter().find(|b| inside(b, Vec3::new(1.0, 29.0, 5.0))).unwrap();
+    let right = bodies.iter().find(|b| inside(b, Vec3::new(35.0, 15.0, 5.0))).unwrap();
+    assert_ne!(left.name, right.name);
+    assert!(!solid_at(&s, 10.0, 29.0, 5.0), "no bridge below the tangent line");
+    let left_name = left.name.clone();
+    let right_name = right.name.clone();
+    // Integrating sqrt(20² - x²) gives the small corner's area
+    // 200 - 50 sqrt(3) - 100 pi/3. The full remaining area is
+    // 1100 - 100 sqrt(3) - 500 pi/3. Both are extruded 10 mm.
+    let left_volume = 10.0 * (200.0 - 50.0 * 3.0_f64.sqrt() - 100.0 * pi() / 3.0);
+    let total_volume = 10.0 * (1100.0 - 100.0 * 3.0_f64.sqrt() - 500.0 * pi() / 3.0);
+    assert!((body_volume(&mut s, &left_name) - left_volume).abs() < 1e-3);
+    assert!((body_volume(&mut s, &right_name) - (total_volume - left_volume)).abs() < 1e-3);
+    assert!((volume(&mut s) - total_volume).abs() < 1e-3);
     change(&mut s, "hd", "100 mm");
     assert!(s.model.state().bodies.is_empty());
     assert!(said(&s, "H1").contains("the hole removes all of Body1"), "{}", said(&s, "H1"));
     change(&mut s, "hd", "5 mm");
     assert_eq!(said(&s, "H1"), "");
+    assert_eq!(s.model.state().bodies.len(), 1);
+    assert!((volume(&mut s) - (12_000.0 - pi() * 2.5_f64.powi(2) * 10.0)).abs() < 1e-3);
 }
 
 /// A hole across the part's width that touches none of its sides keeps the rest, in one piece and

@@ -108,6 +108,8 @@ pub const DOCUMENTED: &[&str] = &[
     "library.inspect",
     "luggage.check_envelope",
     "luggage.estimate_tooling",
+    "luggage.inspect_bodies",
+    "luggage.mold_shrinkage",
     "luggage.workspace",
     "material.assign",
     "material.properties.validate",

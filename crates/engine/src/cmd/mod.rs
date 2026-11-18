@@ -90,6 +90,7 @@ mod interference;
 pub(crate) mod joints;
 mod libraries;
 mod luggage;
+mod luggage_inspection;
 pub mod mass_properties;
 mod material_properties;
 mod materials;
@@ -386,6 +387,7 @@ pub fn command_specs() -> Vec<&'static CommandSpec> {
     v.extend(sheet::COMMANDS.iter());
     v.extend(plastic::COMMANDS.iter());
     v.extend(luggage::COMMANDS.iter());
+    v.extend(luggage_inspection::COMMANDS.iter());
     v.extend(frame::COMMANDS.iter());
     v.extend(frame_end_cap::COMMANDS.iter());
     v.extend(component::COMMANDS.iter());

@@ -2110,6 +2110,14 @@ impl SolveApp {
             self.pick_save_command(&format!("{name}.step"), &["step", "stp", "igs", "iges", "stl", "3mf", "obj", "glb"], "file.export", json!({}));
             return;
         }
+        if id == "luggage.inspect_bodies" {
+            luggage_ui::open_inspection(self);
+            return;
+        }
+        if id == "luggage.mold_shrinkage" {
+            luggage_ui::open_shrinkage(self);
+            return;
+        }
         if matches!(id, "luggage.workspace" | "luggage.check_envelope" | "luggage.estimate_tooling") {
             luggage_ui::open(self, id == "luggage.estimate_tooling");
             return;

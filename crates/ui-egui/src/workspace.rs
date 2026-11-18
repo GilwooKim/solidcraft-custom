@@ -255,10 +255,20 @@ pub const SECTIONS: &[Section] = &[
     Section { tab: "LUGGAGE", panel: "DESIGN", promoted: 3, ids: &["luggage.workspace", "parameters.change", "config.table"] },
     Section { tab: "LUGGAGE", panel: "CREATE", promoted: 4, ids: &["sketch.create", "solid.loft", "solid.shell", "solid.fillet"] },
     Section { tab: "LUGGAGE", panel: "ASSEMBLE", promoted: 3, ids: &["component.insert_design", "joint.create", "motion.interference"] },
-    Section { tab: "LUGGAGE", panel: "CHECK", promoted: 3, ids: &["luggage.check_envelope", "inspect.measure", "inspect.interference"] },
+    Section {
+        tab: "LUGGAGE",
+        panel: "CHECK",
+        promoted: 3,
+        ids: &["luggage.check_envelope", "luggage.inspect_bodies", "inspect.measure", "inspect.interference"],
+    },
     Section { tab: "MOLD", panel: "SETUP", promoted: 3, ids: &["luggage.estimate_tooling", "material.assign", "plastic.manage_rules"] },
-    Section { tab: "MOLD", panel: "CHECK", promoted: 3, ids: &["inspect.draft", "inspect.accessibility", "inspect.minimum_radius"] },
-    Section { tab: "MOLD", panel: "MODIFY", promoted: 3, ids: &["solid.scale", "solid.split_body", "solid.combine"] },
+    Section {
+        tab: "MOLD",
+        panel: "CHECK",
+        promoted: 3,
+        ids: &["luggage.inspect_bodies", "inspect.draft", "inspect.accessibility", "inspect.minimum_radius"],
+    },
+    Section { tab: "MOLD", panel: "MODIFY", promoted: 3, ids: &["luggage.mold_shrinkage", "solid.scale", "solid.split_body", "solid.combine"] },
     Section { tab: "LUGGAGE", panel: "FILES", promoted: 3, ids: &["file.insert_step", "file.insert_mesh", "file.export", "file.save_mesh"] },
     Section { tab: "MOLD", panel: "FILES", promoted: 3, ids: &["assembly.bom", "file.export", "file.save_mesh"] },
     Section { tab: "MOLD", panel: "CREATE", promoted: 3, ids: &["plastic.boss", "plastic.lip", "plastic.snap_fit"] },
@@ -552,6 +562,8 @@ pub const RIBBON_LABELS: &[(&str, &str)] = &[
     ("inspect.minimum_radius", "Min. Radius"),
     ("luggage.check_envelope", "Envelope"),
     ("luggage.estimate_tooling", "Tooling"),
+    ("luggage.inspect_bodies", "Body Check"),
+    ("luggage.mold_shrinkage", "Shrink Copy"),
     ("luggage.workspace", "Luggage"),
     ("motion.interference", "Motion Check"),
     ("render.batch", "All Shots"),
@@ -1785,6 +1797,7 @@ mod tests {
         assert_eq!(destination(solidcraft_engine::find_command("solid.shell").unwrap()), Some(("MODEL", "MODIFY")));
         assert_eq!(destination(solidcraft_engine::find_command("luggage.check_envelope").unwrap()), Some(("LUGGAGE", "CHECK")));
         assert_eq!(destination(solidcraft_engine::find_command("luggage.estimate_tooling").unwrap()), Some(("MOLD", "SETUP")));
+        assert_eq!(destination(solidcraft_engine::find_command("luggage.mold_shrinkage").unwrap()), Some(("MOLD", "MODIFY")));
         for tab in ["LUGGAGE", "MOLD"] {
             for panel in panels(tab) {
                 for id in SECTIONS.iter().filter(|s| s.tab == tab && s.panel == panel).flat_map(|s| s.ids) {

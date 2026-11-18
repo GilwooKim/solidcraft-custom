@@ -4,14 +4,19 @@ use crate::params::bad;
 use crate::schema::luggage::*;
 use crate::schema::{TypedContract, output_schema_for};
 use crate::{Result, Session};
-use serde_json::Value;
+use serde_json::{Value, json};
 use solidcraft_geom::Aabb3;
 
 const WORKSPACE: TypedContract<WorkspaceParams> = TypedContract::new();
 const ENVELOPE: TypedContract<EnvelopeParams> = TypedContract::new();
 const TOOLING: TypedContract<ToolingParams> = TypedContract::new();
+const SHRINKAGE: TypedContract<ShrinkageParams> = TypedContract::new();
 
 pub static COMMANDS: &[CommandSpec] = &[
+    CommandSpec::new("luggage.mold_shrinkage", "Mold Shrinkage Copy", crate::checked!("luggage.mold_shrinkage", shrinkage))
+        .at("MOLD", "MODIFY").icon("scale")
+        .contract(&SHRINKAGE).output(output_schema_for::<ShrinkageResult>)
+        .params("body: product body name; shrinkage_percent: [X,Y,Z] in 0..<20; origin_mm: fixed world point. Creates a linked copy and scale timeline features in one undo step. Original product remains unchanged. World XYZ axes, not inferred material flow directions."),
     CommandSpec::new("luggage.workspace", "Luggage Workbench", crate::checked!("luggage.workspace", workspace))
         .at("LUGGAGE", "DESIGN").icon("inspect").noundo().read_only()
         .contract(&WORKSPACE).output(output_schema_for::<WorkspaceResult>)
@@ -25,6 +30,67 @@ pub static COMMANDS: &[CommandSpec] = &[
         .contract(&TOOLING).output(output_schema_for::<ToolingResult>)
         .params("projected_area_mm2, runner_area_mm2, cavities, cavity_pressure_mpa, safety_factor, shrinkage_percent, sheet_thickness_mm, opening_area_mm2, formed_area_mm2. Preliminary calculations from supplied values; no automatic machine selection or local thickness prediction."),
 ];
+
+/// Nested feature commands ordinarily receive component-local inputs. This recipe's
+/// inputs are world coordinates, so use the same mapper and copy placement capture
+/// as a top-level command before running each existing constructor.
+fn feature_in_world(s: &mut Session, id: &str, params: Value) -> Result<Value> {
+    let mut mapped = crate::frames::to_local(s, id, &params)?;
+    let _copy = crate::frames::copy_context(id, mapped.as_mut());
+    let _local = crate::frames::local_geometry();
+    s.execute(id, mapped.as_ref().unwrap_or(&params))
+}
+
+fn shrinkage(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = "luggage.mold_shrinkage";
+    let input: ShrinkageParams = decode(id, p)?;
+    if input.body.trim().is_empty() || input.body.len() > 4096 {
+        return Err(bad(id, "select one existing product body"));
+    }
+    if input.shrinkage_percent.iter().any(|v| !v.is_finite() || !(0.0..20.0).contains(v)) {
+        return Err(bad(id, "each shrinkage must be finite and in 0..<20 percent"));
+    }
+    if input.origin_mm.iter().any(|v| !v.is_finite() || v.abs() >= 1e9) {
+        return Err(bad(id, "origin must contain finite world millimeters below 1e9 in magnitude"));
+    }
+    // A root component provides an unambiguous world-aligned scale basis. Refuse
+    // another active component instead of silently scaling in its rotated axes.
+    if s.active_component != 0 {
+        return Err(bad(id, "activate the root component before creating a world-axis mold copy"));
+    }
+    let state = s.world_state()?;
+    let source = state.body(&input.body).ok_or_else(|| bad(id, "unknown product body"))?;
+    if source.body.is_mesh() {
+        return Err(bad(id, "mold shrinkage requires a CAD body, not a mesh"));
+    }
+    let copied = feature_in_world(s, "solid.move", json!({"bodies":[input.body],"copy":true,"translate":[0,0,0],"name":"Mold product reference"}))?;
+    let mold_body = copied
+        .get("created_bodies")
+        .and_then(Value::as_array)
+        .and_then(|b| b.first())
+        .and_then(Value::as_str)
+        .ok_or_else(|| bad(id, "copy did not return a mold body"))?
+        .to_owned();
+    let factors = input.shrinkage_percent.map(|rate| 1.0 / (1.0 - rate / 100.0));
+    let expressions = input.shrinkage_percent.map(|rate| format!("1 / (1 - ({rate}) / 100)"));
+    let scaled = feature_in_world(
+        s,
+        "solid.scale",
+        json!({"bodies":[mold_body],"factors":expressions,"origin":input.origin_mm,"name":"Mold shrinkage compensation"}),
+    )?;
+    let feature_id = |v: &Value| v.get("feature").and_then(Value::as_u64).ok_or_else(|| bad(id, "missing generated feature identity"));
+    reply(
+        id,
+        ShrinkageResult {
+            source_body: input.body,
+            mold_body,
+            scale_factors: factors,
+            copy_feature: feature_id(&copied)?,
+            scale_feature: feature_id(&scaled)?,
+            coordinate_basis: "world_xyz_mm".into(),
+        },
+    )
+}
 
 fn decode<T: serde::de::DeserializeOwned>(id: &str, p: &Value) -> Result<T> {
     serde_json::from_value(p.clone()).map_err(|e| bad(id, e.to_string()))
@@ -137,6 +203,93 @@ fn tooling(_: &mut Session, p: &Value) -> Result<Value> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use solidcraft_geom::Vec3Geom;
+    #[test]
+    fn shrinkage_preserves_product_and_follows_parameters_as_one_undo_step() {
+        let mut s = Session::default();
+        s.execute("parameters.add", &json!({"name":"product_length","expression":"100 mm"})).unwrap();
+        s.execute("solid.box", &json!({"length":"product_length","width":50,"height":20,"body_name":"Product","corner":[10,20,30]})).unwrap();
+        let before = s.doc.clone();
+        let original = s.world_state().unwrap().body("Product").unwrap().body.exact_bounds().unwrap();
+        let result = s.execute("luggage.mold_shrinkage", &json!({"body":"Product","shrinkage_percent":[2,1,0],"origin_mm":[10,20,30]})).unwrap();
+        let copy = result["mold_body"].as_str().unwrap();
+        assert_ne!(copy, "Product");
+        for session in [&s, &Session::new(solidcraft_doc::Document::from_json(&s.doc.to_json()).unwrap())] {
+            let state = session.world_state().unwrap();
+            assert_eq!(state.bodies.len(), 2);
+            assert_eq!(state.body("Product").unwrap().body.exact_bounds().unwrap(), original);
+            let bounds = state.body(copy).unwrap().body.exact_bounds().unwrap();
+            assert!(bounds.min.dist(original.min) < 1e-7);
+            assert!((bounds.size().x - 100.0 / 0.98).abs() < 1e-7);
+            assert!((bounds.size().y - 50.0 / 0.99).abs() < 1e-7);
+            assert!((bounds.size().z - 20.0).abs() < 1e-7);
+            let volume = solidcraft_kernel::measure(&state.body(copy).unwrap().body).unwrap().volume;
+            assert!((volume - 100000.0 / (0.98 * 0.99)).abs() < 1e-4);
+        }
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc, before);
+        s.execute("edit.redo", &json!({})).unwrap();
+        s.execute("parameters.change", &json!({"name":"product_length","expression":"120 mm"})).unwrap();
+        let state = s.world_state().unwrap();
+        assert!((state.body("Product").unwrap().body.exact_bounds().unwrap().size().x - 120.0).abs() < 1e-7);
+        assert!((state.body(copy).unwrap().body.exact_bounds().unwrap().size().x - 120.0 / 0.98).abs() < 1e-7);
+        s.execute("timeline.suppress", &json!({"feature":result["scale_feature"],"suppressed":true})).unwrap();
+        let state = s.world_state().unwrap();
+        assert!((state.body(copy).unwrap().body.exact_bounds().unwrap().size().x - 120.0).abs() < 1e-7);
+        s.execute("timeline.suppress", &json!({"feature":result["scale_feature"],"suppressed":false})).unwrap();
+        s.execute("timeline.edit", &json!({"feature":result["scale_feature"],"set":{"factors":["1.1","1","1"]}})).unwrap();
+        let state = s.world_state().unwrap();
+        assert!((state.body(copy).unwrap().body.exact_bounds().unwrap().size().x - 132.0).abs() < 1e-7);
+        assert!((state.body("Product").unwrap().body.exact_bounds().unwrap().size().x - 120.0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn shrinkage_preserves_rotated_occurrences_and_rejects_invalid_inputs_atomically() {
+        let mut s = Session::default();
+        s.execute("component.create", &json!({"name":"ProductPart","grounded":false})).unwrap();
+        s.execute("solid.box", &json!({"length":10,"width":20,"height":30,"body_name":"Product"})).unwrap();
+        s.execute("occurrence.move", &json!({"occurrence":"ProductPart:1","translate":[50,10,20],"axis":[0,0,1],"angle":"90 deg"})).unwrap();
+        let params = json!({"body":"Product","shrinkage_percent":[0,0,0],"origin_mm":[0,0,0]});
+        let before = s.doc.clone();
+        assert!(s.execute("luggage.mold_shrinkage", &params).is_err());
+        assert_eq!(s.doc, before);
+        s.execute("component.activate", &json!({"component":"root"})).unwrap();
+        let original = s.world_state().unwrap().body("Product").unwrap().body.exact_bounds().unwrap();
+        for (key, value) in [
+            ("body", json!("missing")),
+            ("shrinkage_percent", json!([-1, 0, 0])),
+            ("shrinkage_percent", json!([20, 0, 0])),
+            ("origin_mm", json!([1e9, 0, 0])),
+        ] {
+            let before = s.doc.clone();
+            let mut invalid = params.clone();
+            invalid[key] = value;
+            assert!(s.execute("luggage.mold_shrinkage", &invalid).is_err());
+            assert_eq!(s.doc, before);
+        }
+        let result = s.execute("luggage.mold_shrinkage", &params).unwrap();
+        let copy = result["mold_body"].as_str().unwrap();
+        for session in [&s, &Session::new(solidcraft_doc::Document::from_json(&s.doc.to_json()).unwrap())] {
+            let state = session.world_state().unwrap();
+            assert_eq!(state.bodies.len(), 2);
+            assert_eq!(state.body("Product").unwrap().body.exact_bounds().unwrap(), original);
+            let bounds = state.body(copy).unwrap().body.exact_bounds().unwrap();
+            assert!(bounds.min.dist(original.min) < 1e-7 && bounds.max.dist(original.max) < 1e-7);
+        }
+        s.execute("edit.undo", &json!({})).unwrap();
+        let result = s.execute("luggage.mold_shrinkage", &json!({"body":"Product","shrinkage_percent":[2,1,0],"origin_mm":[20,-10,4]})).unwrap();
+        let copy = result["mold_body"].as_str().unwrap();
+        for session in [&s, &Session::new(solidcraft_doc::Document::from_json(&s.doc.to_json()).unwrap())] {
+            let state = session.world_state().unwrap();
+            let bounds = state.body(copy).unwrap().body.exact_bounds().unwrap();
+            assert_eq!(state.body("Product").unwrap().body.exact_bounds().unwrap(), original);
+            for (actual, source) in [(bounds.min, original.min), (bounds.max, original.max)] {
+                assert!((actual.x - (20.0 + (source.x - 20.0) / 0.98)).abs() < 1e-7);
+                assert!((actual.y - (-10.0 + (source.y + 10.0) / 0.99)).abs() < 1e-7);
+                assert!((actual.z - source.z).abs() < 1e-7);
+            }
+        }
+    }
     #[test]
     fn tooling_units_and_shrinkage_are_explicit() {
         let mut s = Session::default();

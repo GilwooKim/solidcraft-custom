@@ -2528,9 +2528,14 @@ impl AnalyticSupport {
             Extent2d::from_bounds(0.0, domain.min().y, sweep, domain.max().y),
             recognised.swap_uv,
         )?;
+        // Reparameterisation rebuilds the polar converter from the base's sweep iso.
+        // Give it the retained form first: otherwise it generates another NURB from
+        // the recovered frame, then keeps that net's converter beside a different
+        // net. On a short sweep their rounding alone can exceed `evaluates_as`'s
+        // unchanged bound.
+        rev.base = form.copy();
         // (as the recogniser: the NURB's domain the form's, status ignored)
         crate::error::ignore_status(rev.reparameterize(k, &form.natural_uv_domain()))?;
-        rev.base = form.copy();
         Ok(Some(Surface::from(rev)))
     }
 

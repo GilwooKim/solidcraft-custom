@@ -1594,6 +1594,8 @@ mod card_tests {
                     set_cursor(&h.ctx, matches[0].0);
                     h.frames(2);
                     h.step(&json!({"key":"Enter"})).unwrap();
+                    // Exercise the real reveal target without racing its 900 ms wall-clock lifetime.
+                    assert!(h.app.prefs_window.shell.keep_reveal_visible(), "Enter created the reveal");
                     h.frames(30);
                     assert_eq!(h.app.prefs_window.shell.section, crate::prefs::PAGE_ASSISTANT);
                     assert!(h.app.prefs_window.shell.filter.is_empty());

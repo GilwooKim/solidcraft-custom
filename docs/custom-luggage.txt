@@ -8,11 +8,13 @@ The Luggage and Mold ribbon tabs share the existing geometry, assembly and file 
 New commands
 - luggage.workspace {}: reports the actual format registry. Interactive invocation opens the workbench.
 - luggage.check_envelope {limits_mm:[400,550,230],max_sum_mm:1180}: measures all world-space bodies, including hidden bodies, against explicitly supplied X/Y/Z and sum limits. The example is not an airline rule. Include wheels and retract handles before checking. A mesh is measured as a mesh; missing geometry or an incomplete assembly is not certified by a passing envelope check. Desktop checks run on a cancellable worker; closing the window or changing the design/inputs discards stale results.
+- luggage.inspect_bodies {bodies:[]}: inspects all placed bodies, including hidden ones. Supply world body names to inspect a subset through the command API. The ribbon inspects all bodies on a cancellable worker and discards results when the document changes. Results separate closedness from record/native validity, retain feature/import diagnostics and report exact world bounds and CAD topology counts. Open bodies and failed measurements have no volume value. Mesh B-rep validity is explicitly unsupported. Copy JSON preserves the full report. This checks the current document; it cannot establish missing original-file entities, original units, missing assembly parts or manufacturing readiness.
 - luggage.estimate_tooling {projected_area_mm2:4676,runner_area_mm2:0,cavities:2,cavity_pressure_mpa:40,safety_factor:1.2,shrinkage_percent:0.6,sheet_thickness_mm:4,opening_area_mm2:204794,formed_area_mm2:369478}: preliminary, explicit-input calculations. Results retain inputs for review.
+- luggage.mold_shrinkage {body:"Product",shrinkage_percent:[2,1,0],origin_mm:[0,0,0]}: creates a linked mold copy and a scale feature in one undo step, preserving the original product. Activate the root component first. Rates apply along world X/Y/Z about a fixed world point, not inferred flow directions. Supply rates from the material grade's data sheet or trial measurements. Edit or suppress the generated scale feature in the timeline; upstream product changes rebuild the copy. Save as a native design to retain these links.
 
 Calculation conventions
 Clamp force [N] = (product projected area per cavity * cavity count + total runner projected area) [mm2] * mean cavity pressure [MPa] * safety factor. 1 MPa = 1 N/mm2; 1 metric ton-force = 9806.65 N.
-Mold scale = 1/(1-shrinkage/100), with shrinkage defined relative to mold size. This returns a scale; it does not modify the model.
+Mold scale = 1/(1-shrinkage/100), with shrinkage defined relative to mold size. Tooling Estimates returns this scale without modifying the model. Mold Shrinkage Copy applies it to a separate linked body.
 Average formed thickness = sheet thickness * clamp opening area / formed area. This is an area-conservation estimate, not minimum wall thickness or a forming simulation.
 The tools do not automatically extract projected area, select a machine, validate tooling release, or calculate injection flow/cooling.
 
@@ -22,6 +24,6 @@ The ribbon Export action offers STEP, IGES, STL, 3MF, OBJ and GLB through existi
 Next engineering milestones
 1. Reference-assembly round-trip fidelity, open-body diagnostics, batch part exports and assembly metadata.
 2. Parametric luggage shell/ribs/flanges and component-driven wheel/handle pockets, with wall thickness, draft, symmetry and motion-clearance regression checks.
-3. Linked mold shrinkage, parting/shutoff surfaces, core/cavity generation and volume/opening verification.
+3. Arbitrary material-flow axes for linked mold shrinkage, parting/shutoff surfaces, core/cavity generation and volume/opening verification.
 4. Mold bases, slides, lifters, ejection, cooling, gates/runners/vents, manufacturing packages, quotations and trial history.
 The current workbench is the first integration increment, not the completed luggage/mold system. Customer reference geometry and planning documents are kept outside this public source repository.

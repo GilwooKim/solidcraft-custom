@@ -2190,6 +2190,62 @@ mod tickets_http_tests {
     use solidcraft_ui_egui::agent_chat::backend::HttpRequest;
     use std::io::{Read, Write};
 
+    // This fixture must consume the POST before closing: unread request bytes can turn
+    // the intended EOF-delimited response into a TCP reset on Windows.
+    fn read_upload_request(stream: &mut impl Read) -> Vec<u8> {
+        let mut request = Vec::new();
+        let mut buf = [0u8; 4096];
+        let header_end = loop {
+            if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                break end + 4;
+            }
+            assert!(request.len() < buf.len(), "fixture request headers are too large");
+            let remaining = buf.len() - request.len();
+            let n = stream.read(&mut buf[..remaining]).unwrap();
+            assert!(n > 0, "the request ended early");
+            request.extend_from_slice(&buf[..n]);
+        };
+        let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+        let lengths: Vec<usize> = headers
+            .lines()
+            .filter_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.eq_ignore_ascii_case("Content-Length") { Some(value.trim().parse().unwrap()) } else { None }
+            })
+            .collect();
+        assert_eq!(lengths, [2], "this fixture expects exactly the two-byte upload body");
+        assert!(request.len() <= header_end + 2, "unexpected bytes after the upload body");
+        let received = request.len();
+        request.resize(header_end + 2, 0);
+        stream.read_exact(&mut request[received..]).unwrap();
+        assert_eq!(&request[header_end..], b"{}");
+        request
+    }
+
+    #[test]
+    fn the_upload_fixture_consumes_coalesced_and_segmented_request_bodies() {
+        let headers = b"POST /api/uploads HTTP/1.1\r\nContent-Length: 2\r\nConnection: close\r\n\r\n";
+        let expected = [headers.as_slice(), b"{}"].concat();
+        assert_eq!(read_upload_request(&mut std::io::Cursor::new(&expected)), expected);
+
+        struct Segments(std::sync::mpsc::Receiver<Vec<u8>>);
+        impl Read for Segments {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let bytes = self.0.recv().unwrap();
+                assert!(bytes.len() <= buf.len());
+                buf[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            }
+        }
+        let (send, receive) = std::sync::mpsc::sync_channel(0);
+        let reader = std::thread::spawn(move || read_upload_request(&mut Segments(receive)));
+        // Rendezvous sends force separate reads without depending on TCP packet boundaries.
+        send.send(headers.to_vec()).unwrap();
+        send.send(b"{".to_vec()).unwrap();
+        send.send(b"}".to_vec()).unwrap();
+        assert_eq!(reader.join().unwrap(), expected);
+    }
+
     /// A server that answers without a length and keeps the connection open unless the request
     /// asked to close it: the reply ends only when the connection does (#17932).
     #[test]
@@ -2198,13 +2254,7 @@ mod tickets_http_tests {
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut buf = [0u8; 4096];
-            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-                let n = stream.read(&mut buf).unwrap();
-                assert!(n > 0, "the request ended early");
-                request.extend_from_slice(&buf[..n]);
-            }
+            let request = read_upload_request(&mut stream);
             let reply = b"HTTP/1.1 201 Created\r\nContent-Type: application/json\r\n\r\n{\"id\":\"up1\"}";
             stream.write_all(reply).unwrap();
             let close = String::from_utf8_lossy(&request).to_ascii_lowercase().contains("connection: close");

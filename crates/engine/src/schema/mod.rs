@@ -83,6 +83,7 @@ pub mod joint_sweep;
 pub mod joints;
 pub mod libraries;
 pub mod luggage;
+pub mod luggage_inspection;
 pub mod mass_properties;
 pub mod material_properties;
 pub mod materials;

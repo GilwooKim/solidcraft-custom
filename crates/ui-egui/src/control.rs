@@ -129,6 +129,8 @@ fn open_windows(app: &SolveApp) -> Vec<&'static str> {
         (app.material_card_review.is_some(), "material.properties.validate"),
         (app.luggage.is_open(false), "luggage.workspace"),
         (app.luggage.is_open(true), "luggage.estimate_tooling"),
+        (crate::luggage_ui::shrinkage_is_open(app), "luggage.mold_shrinkage"),
+        (crate::luggage_ui::inspection_is_open(app), "luggage.inspect_bodies"),
         (app.help.about, "about"),
         (app.updater.open, "updates"),
         (app.keymap.open, "shortcuts"),
