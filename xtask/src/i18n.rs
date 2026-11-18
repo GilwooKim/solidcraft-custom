@@ -10,9 +10,8 @@
 //! non-zero exit for CI; `--add-missing` writes the uncovered command labels into the English
 //! catalog under `cmd.<command id>` so a translator only has to fill in the other catalogs.
 //!
-//! German and Korean predate the coverage guards and are still partial, so their gaps are
-//! reported but do not fail `--check`; the catalogs delivered complete (`COMPLETE`) may not
-//! regress.
+//! Partial catalogs have their gaps reported without failing `--check`; the catalogs delivered
+//! complete (`COMPLETE`), including the custom installer's languages, may not regress.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -24,7 +23,7 @@ const DIR: &str = "assets/locales";
 
 /// Catalogs delivered complete: a missing message here fails `--check`. English is the source
 /// catalog and is checked implicitly; keep this in step with `COMPLETE` in `ui-egui::i18n`.
-const COMPLETE: &[&str] = &["ar", "he", "ja", "vi", "zh"];
+const COMPLETE: &[&str] = &["ar", "he", "id", "ja", "ko", "vi", "zh"];
 
 /// What `run` found.
 #[derive(Default)]
@@ -113,7 +112,7 @@ fn run_with_registry(root: &Path, args: &[&str], registry: impl FnOnce() -> Resu
         if report.reported_only() > 0 {
             println!(
                 "i18n: every complete catalog ({}) carries every English message; {}; \
-                 {} message(s) are still missing from the partial catalogs (de, ko)",
+                 {} message(s) are still missing from the remaining partial catalogs",
                 COMPLETE.join(", "),
                 if labels { "every command label is translatable" } else { "command labels not checked here" },
                 report.reported_only()
@@ -328,6 +327,20 @@ mod tests {
     #[test]
     fn an_empty_report_has_no_problems() {
         assert_eq!(Report::default().problems(), 0);
+    }
+
+    #[test]
+    fn installer_languages_cannot_regress_to_partial_catalogs() {
+        for locale in ["id", "ko", "vi"] {
+            let root = catalog_root();
+            let catalog = root.join(DIR).join(format!("{locale}.json"));
+            std::fs::write(&catalog, "{}").unwrap();
+            let error = run_with_registry(&root, &["--check"], || Ok(Vec::new())).unwrap_err();
+            assert!(error.contains("1 message(s) missing from a complete catalog"), "{locale}: {error}");
+            std::fs::write(catalog, "{\"cmd.known\":\"Translated\"}").unwrap();
+            run_with_registry(&root, &["--check"], || Ok(Vec::new())).unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

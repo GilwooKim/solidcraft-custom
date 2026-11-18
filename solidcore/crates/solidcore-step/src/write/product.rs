@@ -2,7 +2,7 @@
 //!
 //! Each body's record is written as it is, the exact B-rep, by
 //! [`topology`]: its material regions as solids, its open shells as a
-//! surface model. Around it this writes one header and context, a product per part with its
+//! surface model. Around it this writes one header, contexts retaining each body's accuracy, a product per part with its
 //! shape representation, named solids, surface and face colours, and assemblies as
 //! next-assembly-usage occurrences placed by item-defined transformations (the structure the
 //! CAx-IF recommends and our reader follows). Identical geometric entities (points, directions,
@@ -159,6 +159,27 @@ type Result<T> = std::result::Result<T, ExportError>;
 /// The least distance uncertainty written (mm).
 const MIN_UNCERTAINTY: f64 = 1e-6;
 
+fn body_uncertainty(record: &Brep) -> f64 {
+    std::iter::once(record.tolerance)
+        .chain(record.edges.iter().map(|e| e.tolerance))
+        .chain(record.vertices.iter().map(|v| v.tolerance))
+        .filter(|t| t.is_finite())
+        .fold(MIN_UNCERTAINTY, f64::max)
+}
+
+fn geometry_context(w: &mut Writer, mm: u64, rad: u64, sr: u64, uncertainty: f64) -> u64 {
+    let unc = w.add_distinct(
+        "UNCERTAINTY_MEASURE_WITH_UNIT",
+        &[Param::Typed("LENGTH_MEASURE".into(), vec![Param::Real(uncertainty)]), r(mm), s("distance_accuracy_value"), s("confusion accuracy")],
+    );
+    w.add_complex(&[
+        ("GEOMETRIC_REPRESENTATION_CONTEXT", vec![Param::Int(3)]),
+        ("GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT", vec![refs(&[unc])]),
+        ("GLOBAL_UNIT_ASSIGNED_CONTEXT", vec![refs(&[mm, rad, sr])]),
+        ("REPRESENTATION_CONTEXT", vec![s("Context #1"), s("3D Context with UNIT and UNCERTAINTY")]),
+    ])
+}
+
 fn s(text: &str) -> Param {
     Param::Str(text.to_string())
 }
@@ -253,15 +274,7 @@ pub fn products_with_face_ids(products: &[ExportProduct], root: usize, header: &
     // The context states the models' accuracy: the loosest tolerance of their records, edges
     // and vertices. STEP keeps no tolerance per edge, so an edge that lies off its faces (an
     // intersection curve fitted within its tolerance) is only as good as the file says (#11997).
-    let uncertainty = reached
-        .iter()
-        .flat_map(|(_, p)| &p.bodies)
-        .flat_map(|b| {
-            let r = b.record;
-            std::iter::once(r.tolerance).chain(r.edges.iter().map(|e| e.tolerance)).chain(r.vertices.iter().map(|v| v.tolerance))
-        })
-        .filter(|t| t.is_finite())
-        .fold(MIN_UNCERTAINTY, f64::max);
+    let uncertainty = reached.iter().flat_map(|(_, p)| &p.bodies).map(|b| body_uncertainty(b.record)).fold(MIN_UNCERTAINTY, f64::max);
 
     let mut w = Writer::new();
     let app = w.add_distinct("APPLICATION_CONTEXT", &[s("managed model based 3d engineering")]);
@@ -286,16 +299,7 @@ pub fn products_with_face_ids(products: &[ExportProduct], root: usize, header: &
         ("SI_UNIT", vec![Param::Null, Param::Enum("STERADIAN".into())]),
         ("SOLID_ANGLE_UNIT", vec![]),
     ]);
-    let unc = w.add_distinct(
-        "UNCERTAINTY_MEASURE_WITH_UNIT",
-        &[Param::Typed("LENGTH_MEASURE".into(), vec![Param::Real(uncertainty)]), r(mm), s("distance_accuracy_value"), s("confusion accuracy")],
-    );
-    let ctx = w.add_complex(&[
-        ("GEOMETRIC_REPRESENTATION_CONTEXT", vec![Param::Int(3)]),
-        ("GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT", vec![refs(&[unc])]),
-        ("GLOBAL_UNIT_ASSIGNED_CONTEXT", vec![refs(&[mm, rad, sr])]),
-        ("REPRESENTATION_CONTEXT", vec![s("Context #1"), s("3D Context with UNIT and UNCERTAINTY")]),
-    ]);
+    let ctx = geometry_context(&mut w, mm, rad, sr, uncertainty);
     let origin =
         GeomWriter::new(&mut w).placement(&crate::geom::Placement { origin: [0.0; 3], axis: [0.0, 0.0, 1.0], ref_direction: [1.0, 0.0, 0.0] });
 
@@ -335,7 +339,9 @@ pub fn products_with_face_ids(products: &[ExportProduct], root: usize, header: &
         if let Some(slot) = shape_rep.get_mut(pi) {
             *slot = srep;
         }
-        let (mut solids, mut sheets) = (Vec::new(), Vec::new());
+        // A coarse body's uncertainty must not collapse a neighbouring fine body's trims.
+        // Bodies with identical accuracy can still share a representation and context.
+        let mut accuracy_groups: Vec<(f64, Vec<u64>, Vec<u64>)> = Vec::new();
         let mut product_faces = Vec::new();
         for b in &p.bodies {
             let before = w.non_finite();
@@ -344,7 +350,7 @@ pub fn products_with_face_ids(products: &[ExportProduct], root: usize, header: &
             if w.non_finite() != before {
                 return Err(ExportError::NotFinite { name: b.name.clone() });
             }
-            let items: Vec<u64> = written.solids.iter().copied().chain(written.sheets).collect();
+            let items: Vec<u64> = written.solids.iter().chain(&written.sheets).copied().collect();
             if let Some(c) = &b.color {
                 for item in &items {
                     styled.push(style(&mut w, *item, c));
@@ -357,18 +363,26 @@ pub fn products_with_face_ids(products: &[ExportProduct], root: usize, header: &
                 }
             }
             product_faces.push(written.faces);
-            solids.extend(written.solids);
-            sheets.extend(written.sheets);
+            let accuracy = body_uncertainty(b.record);
+            if let Some((_, solids, sheets)) = accuracy_groups.iter_mut().find(|(value, _, _)| *value == accuracy) {
+                solids.extend(written.solids);
+                sheets.extend(written.sheets);
+            } else {
+                accuracy_groups.push((accuracy, written.solids, written.sheets.into_iter().collect()));
+            }
         }
         if let Some(slot) = face_ids.get_mut(pi) {
             *slot = product_faces;
         }
-        for (kind, list) in [("ADVANCED_BREP_SHAPE_REPRESENTATION", solids), ("MANIFOLD_SURFACE_SHAPE_REPRESENTATION", sheets)] {
-            if list.is_empty() {
-                continue;
+        for (accuracy, solids, sheets) in accuracy_groups {
+            let body_ctx = if accuracy == uncertainty { ctx } else { geometry_context(&mut w, mm, rad, sr, accuracy) };
+            for (kind, list) in [("ADVANCED_BREP_SHAPE_REPRESENTATION", solids), ("MANIFOLD_SURFACE_SHAPE_REPRESENTATION", sheets)] {
+                if list.is_empty() {
+                    continue;
+                }
+                let rep = w.add_distinct(kind, &[s(&name), refs(&[list, vec![origin]].concat()), r(body_ctx)]);
+                w.add_distinct("SHAPE_REPRESENTATION_RELATIONSHIP", &[s(""), s(""), r(srep), r(rep)]);
             }
-            let rep = w.add_distinct(kind, &[s(&name), refs(&[list, vec![origin]].concat()), r(ctx)]);
-            w.add_distinct("SHAPE_REPRESENTATION_RELATIONSHIP", &[s(""), s(""), r(srep), r(rep)]);
         }
     }
     if !product_ids.is_empty() {
@@ -588,6 +602,34 @@ mod tests {
         assert!(text.contains("MANIFOLD_SOLID_BREP('Block'") && text.contains("MANIFOLD_SOLID_BREP('Pin'"));
         assert!(text.contains("PRODUCT('parts','parts'"));
         assert_eq!(solidcore_bodies(&[], &Header::default()), Err(ExportError::Nothing));
+    }
+
+    #[test]
+    fn mixed_accuracy_bodies_keep_their_own_representation_uncertainty() {
+        let bx = solidcore_ops::make_box([0.0; 3], [10.0, 20.0, 5.0]).unwrap();
+        let (fine, _) = bx.to_record().unwrap();
+        let mut coarse = fine.clone();
+        coarse.edges.first_mut().unwrap().tolerance = 0.2;
+        let list = vec![
+            ExportBody { name: "Fine".into(), record: &fine, color: None, faces: vec![] },
+            ExportBody { name: "Coarse".into(), record: &coarse, color: None, faces: vec![] },
+        ];
+        let text = bodies(list, &Header::default()).unwrap();
+        let ex = p21::parse(&text).unwrap();
+        let mut seen = std::collections::BTreeMap::new();
+        for rep in ex.entities.values().filter(|e| e.name() == "ADVANCED_BREP_SHAPE_REPRESENTATION") {
+            let params = rep.params();
+            let context = crate::units::context(&ex, params[2].as_ref_id().unwrap());
+            for item in params[1].as_list().unwrap() {
+                let entity = ex.get(item.as_ref_id().unwrap()).unwrap();
+                if entity.name() == "MANIFOLD_SOLID_BREP" {
+                    seen.insert(entity.params()[0].as_str().unwrap().to_owned(), context.uncertainty.unwrap());
+                }
+            }
+        }
+        assert_eq!(seen.get("Fine"), Some(&body_uncertainty(&fine)));
+        assert_eq!(seen.get("Coarse"), Some(&0.2));
+        assert_eq!(seen.len(), 2);
     }
 
     /// An assembly placing a part (a box) once by `m` in an empty root.

@@ -303,6 +303,18 @@ mod tests {
     use solidcraft_ui_text::*;
     use std::collections::BTreeMap;
 
+    #[test]
+    fn every_file_format_label_is_in_the_english_catalog() {
+        install();
+        let mut labels = std::collections::BTreeSet::new();
+        each_english_message(|_, text| {
+            labels.insert(text.to_owned());
+        });
+        for format in solidcraft_engine::io::formats::FORMATS {
+            assert!(labels.contains(format.label), "format {} has an unregistered label: {}", format.id, format.label);
+        }
+    }
+
     /// The system's locale tags pick a catalog: exact tag, then base language, then English (#10138).
     #[test]
     fn panel_direction_follows_effective_catalog_including_missing_message_fallback() {
@@ -702,11 +714,11 @@ mod tests {
         ENGLISH.messages().values().map(String::as_str).collect()
     }
 
-    /// English is the source catalog. Arabic, Hebrew, Japanese, Vietnamese and Chinese
+    /// English is the source catalog. Arabic, Hebrew, Indonesian, Japanese, Korean, Vietnamese and Chinese
     /// are complete; every English key must be present. Other catalogs are partial:
     /// gaps fall back to English and `cargo xtask i18n` reports them without failing.
-    /// New labels still require German and Korean under the contributor policy.
-    const COMPLETE: &[&str] = &["ar", "he", "ja", "vi", "zh"];
+    /// New labels still require German under the contributor policy.
+    const COMPLETE: &[&str] = &["ar", "he", "id", "ja", "ko", "vi", "zh"];
 
     /// `text()` falls back to English silently, so a message a complete locale never received is
     /// shown in English inside an otherwise translated UI, with nothing in the build to say so.

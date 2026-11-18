@@ -184,7 +184,7 @@ fn menu_bar(app: &SolveApp, recent: &[String]) -> MenuBar {
     let help = HELP.iter().map(|h| Item::action(HELP_ID, help_label(app, h), "").with(json!({ "item": h }))).collect();
     MenuBar {
         title: "SolidCraft".into(),
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: solidcraft_ui_egui::update::current_version().into(),
         app: vec![item(&more("ui.preferences"), &FileAction::Settings), item(&more("ui.keyboard_shortcuts"), &FileAction::Shortcuts)],
         quit: item(&format!("{} SolidCraft", app.tr("ui.quit")), &FileAction::Quit),
         menus: vec![

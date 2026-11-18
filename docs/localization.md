@@ -61,8 +61,8 @@ that looks untranslated. Two guards catch that in the build:
 
 - `every_complete_catalog_carries_every_english_message` — adding a key to `en.json`
   without giving it to a complete catalog fails the tests. English is the source catalog,
-  Arabic, Hebrew, Japanese and Chinese are delivered complete; Bosnian, Croatian, Serbian, Georgian and Latvian carry
-  every English message today but are not held to it, so a new label may follow later in them; Danish, German, Spanish, Finnish, Galician, Italian, Korean, Malay, Norwegian Bokmål, Polish, Brazilian Portuguese, Russian, French, Ukrainian and
+  Arabic, Hebrew, Indonesian, Japanese, Korean, Vietnamese and Chinese are delivered complete; Bosnian, Croatian, Serbian, Georgian and Latvian carry
+  every English message today but are not held to it, so a new label may follow later in them; Danish, German, Spanish, Finnish, Galician, Italian, Malay, Norwegian Bokmål, Polish, Brazilian Portuguese, Russian, French, Ukrainian and
   Turkish are partial — their gaps fall back to English and are reported by `cargo xtask i18n` without
   failing the build. A new label needs en, ar, he, ja, zh, de and ko; Russian, French, Ukrainian and Malay may
   follow later.

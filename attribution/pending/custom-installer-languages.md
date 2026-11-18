@@ -1,0 +1,2 @@
+| packaging/windows/languages/Indonesian.isl | MozaikTM, Edward Tie | https://github.com/jrsoftware/issrc/blob/main/Files/Languages/Unofficial/Indonesian.isl | Inno Setup License (languages/License.txt) |
+| packaging/windows/languages/Vietnamese.isl | Vu Khac Hiep, Phung Tien Duong, Le Duy Quang, Memecoder | https://github.com/jrsoftware/issrc/blob/main/Files/Languages/Unofficial/Vietnamese.isl | Inno Setup License (languages/License.txt) |

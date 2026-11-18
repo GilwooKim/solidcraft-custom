@@ -998,7 +998,7 @@ fn tickets_call(r: &solidcraft_ui_egui::agent_chat::backend::HttpRequest) -> Res
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(r.timeout_s.clamp(1, 3600))))
         .timeout_connect(Some(Duration::from_secs(10)))
-        .user_agent(concat!("SolidCraft/", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("SolidCraft/{}", solidcraft_ui_egui::update::current_version()))
         .max_redirects(0)
         .build()
         .into();
@@ -1128,6 +1128,16 @@ fn restore_preferences(app: &mut SolveApp, stored_ui: Option<&str>, saved_graphi
     // Even safe mode edits the real graphics.json. Keep its choices in Preferences so an
     // anti-aliasing change cannot erase them; safe mode's renderer still uses its own defaults.
     restore_graphics_preferences(app, saved_graphics);
+}
+
+/// The installer supplies a first-run default; saved choices (including System) always win.
+fn apply_installer_language(app: &mut SolveApp, stored_ui: Option<&str>, language: Option<&str>, safe_mode: bool) {
+    if stored_ui.is_none()
+        && !safe_mode
+        && let Some(language) = language.map(str::trim).filter(|language| matches!(*language, "en" | "ko" | "id" | "vi"))
+    {
+        app.preferences.language = language.to_owned();
+    }
 }
 
 /// Restore startup choices after loading the separately saved UI preferences.
@@ -1276,7 +1286,7 @@ fn main() -> eframe::Result {
             "--safe-mode" => safe_mode = true,
             "--view" => solidcraft_ui_egui::new_window::set_start_view(&args.next().unwrap_or_default()),
             "--version" | "-V" => {
-                println!("solidcraft {}", env!("CARGO_PKG_VERSION"));
+                println!("solidcraft {}", solidcraft_ui_egui::update::current_version());
                 return Ok(());
             }
             "--crash-log" => {
@@ -1545,6 +1555,11 @@ fn main() -> eframe::Result {
             app.graphics_fallback = fallback_note.clone();
             let stored_ui = cc.storage.and_then(|s| solidcraft_ui_egui::prefs::stored(|k| s.get_string(k)));
             restore_preferences(&mut app, stored_ui.as_deref(), graphics().as_ref(), safe_mode);
+            let installer_language = std::env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(|dir| dir.join("installer-language.txt")))
+                .and_then(|path| std::fs::read_to_string(path).ok());
+            apply_installer_language(&mut app, stored_ui.as_deref(), installer_language.as_deref(), safe_mode);
             // The administrator's policy holds in safe mode too.
             app.policy = solidcraft_ui_egui::policy::load();
             if let Some(path) = &theme_file
@@ -2464,6 +2479,26 @@ mod viewport_tests {
 
 #[cfg(test)]
 mod msaa_tests {
+    #[test]
+    fn installer_language_is_only_a_first_run_default() {
+        for language in ["en", "ko", "id", "vi"] {
+            let mut app = solidcraft_ui_egui::SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+            super::apply_installer_language(&mut app, None, Some(language), false);
+            assert_eq!(app.preferences.language, language);
+            app.preferences.language = "system".into();
+            super::apply_installer_language(&mut app, Some("{}"), Some(language), false);
+            assert_eq!(app.preferences.language, "system");
+            super::apply_installer_language(&mut app, None, Some(language), true);
+            assert_eq!(app.preferences.language, "system");
+        }
+        let mut app = solidcraft_ui_egui::SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+        for language in [None, Some("unknown"), Some("../../ko"), Some("")] {
+            super::apply_installer_language(&mut app, None, language, false);
+            assert_eq!(app.preferences.language, "system");
+        }
+        super::apply_installer_language(&mut app, None, Some("vi\r\n"), false);
+        assert_eq!(app.preferences.language, "vi");
+    }
     /// Safe graphics mode leaves the backend and adapter to wgpu (no API order, no adapter
     /// preference, no float depth feature); its software fallback still picks the CPU adapter.
     #[test]

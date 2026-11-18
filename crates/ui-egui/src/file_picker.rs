@@ -316,6 +316,124 @@ mod tests {
         }
     }
 
+    /// The ribbon's generic export enters the host picker; it must not fall through to the
+    /// headless command without a path. These are callback tests, not native-dialog tests.
+    #[test]
+    fn generic_export_offers_all_six_formats_and_waits_for_the_picker() {
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        h.app.run("solid.box", json!({"length":10,"width":10,"height":10})).unwrap();
+        let answer = picker(&mut h.app, true);
+        let captured = answer.clone();
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let log = asked.clone();
+        h.app.services.pick_save = Some(Box::new(move |name, extensions| {
+            log.borrow_mut().push((name.to_string(), extensions.iter().map(|e| e.to_string()).collect::<Vec<_>>()));
+            Box::pin(Delayed(captured.clone()))
+        }));
+        h.app.start("file.export");
+        h.frames(2);
+        assert!(h.app.file_picker_busy());
+        assert_eq!(asked.borrow().len(), 1);
+        assert!(asked.borrow()[0].0.ends_with(".step"));
+        assert_eq!(asked.borrow()[0].1, ["step", "stp", "igs", "iges", "stl", "3mf", "obj", "glb"]);
+        finish(&mut h.app, &answer, None);
+    }
+
+    #[test]
+    fn generic_export_step_and_stl_keep_the_whole_design_despite_a_body_selection() {
+        for extension in ["step", "stl"] {
+            let mut h = crate::scenario::Harness::new();
+            h.app.home.open = false;
+            h.app.run("solid.box", json!({"length":10,"width":10,"height":10})).unwrap();
+            h.app.run("solid.box", json!({"length":5,"width":5,"height":5,"corner":[30,0,0],"operation":"new_body"})).unwrap();
+            h.app.run("select.set", json!({"items":[{"type":"body","name":"Body1"}]})).unwrap();
+            let before = h.app.session.doc.to_json();
+            let selection = h.app.session.selection.clone();
+            let revision = h.app.session.revision;
+            let dirty = h.app.session.is_dirty();
+            let answer = picker(&mut h.app, true);
+            let path = h.dir.join(format!("whole-design.{extension}"));
+            h.app.start("file.export");
+            h.frames(2);
+            assert!(h.app.file_picker_busy() && !path.exists());
+            finish(&mut h.app, &answer, Some(path.to_string_lossy().into_owned()));
+            assert!(path.is_file(), "{extension}: {:?}", h.app.status);
+            assert_eq!(h.app.session.doc.to_json(), before);
+            assert_eq!(h.app.session.selection, selection);
+            assert_eq!(h.app.session.revision, revision);
+            assert_eq!(h.app.session.is_dirty(), dirty);
+            let mut reopened = solidcraft_engine::Session::default();
+            reopened.execute("doc.open", &json!({"path":path.to_string_lossy(),"reuse_import":false})).unwrap();
+            let envelope = reopened.execute("luggage.check_envelope", &json!({"limits_mm":[35,10,10],"max_sum_mm":55})).unwrap();
+            let size = envelope["size_mm"].as_array().unwrap();
+            for (actual, expected) in size.iter().zip([35.0, 10.0, 10.0]) {
+                assert!((actual.as_f64().unwrap() - expected).abs() < 1e-6, "{extension}: {envelope}");
+            }
+            if extension == "step" {
+                assert_eq!(envelope["body_count"], 2, "{envelope}");
+            } else {
+                assert_eq!(envelope["mesh_body_count"], 1, "{envelope}");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_export_cancel_preserves_files_document_revision_dirty_state_and_selection() {
+        for dirty in [false, true] {
+            let mut h = crate::scenario::Harness::new();
+            h.app.home.open = false;
+            h.app.run("solid.box", json!({"length":10,"width":10,"height":10})).unwrap();
+            h.app.run("select.set", json!({"items":[{"type":"body","name":"Body1"}]})).unwrap();
+            if !dirty {
+                h.app.session.mark_saved();
+            }
+            let before = h.app.session.doc.to_json();
+            let revision = h.app.session.revision;
+            let selection = h.app.session.selection.clone();
+            let directory = h.dir.clone();
+            let files = || {
+                let mut paths = std::fs::read_dir(&directory).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
+                paths.sort();
+                paths
+            };
+            let files_before = files();
+            let answer = picker(&mut h.app, true);
+            h.app.start("file.export");
+            h.frames(2);
+            assert!(h.app.file_picker_busy());
+            finish(&mut h.app, &answer, None);
+            assert_eq!(files(), files_before);
+            assert_eq!(h.app.session.doc.to_json(), before);
+            assert_eq!(h.app.session.revision, revision);
+            assert_eq!(h.app.session.is_dirty(), dirty);
+            assert_eq!(h.app.session.selection, selection);
+        }
+    }
+
+    #[test]
+    fn generic_export_empty_design_does_not_open_a_picker() {
+        let mut h = crate::scenario::Harness::new();
+        let asked = Rc::new(Cell::new(0));
+        let count = asked.clone();
+        h.app.services.pick_save = Some(Box::new(move |_, _| {
+            count.set(count.get() + 1);
+            Box::pin(std::future::ready(None))
+        }));
+        for home in [true, false] {
+            h.app.home.open = home;
+            h.app.start("file.export");
+            assert_eq!(asked.get(), 0, "empty design, Home open: {home}");
+            assert!(!h.app.file_picker_busy());
+        }
+        h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
+        h.app.run("sketch.rectangle.two_point", json!({"p0":[0,0],"p1":[10,10]})).unwrap();
+        h.app.run("sketch.finish", json!({})).unwrap();
+        h.app.start("file.export");
+        assert_eq!(asked.get(), 0, "sketch-only designs use their separate SVG/DXF export");
+        assert!(!h.app.file_picker_busy());
+    }
+
     /// Saving the design says where it went, as an export does (#8693).
     #[test]
     fn saving_the_design_says_where_it_went() {

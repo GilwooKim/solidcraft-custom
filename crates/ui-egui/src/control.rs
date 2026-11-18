@@ -127,6 +127,8 @@ fn open_windows(app: &SolveApp) -> Vec<&'static str> {
         (app.sketch_report.is_some(), "sketch.inspect"),
         (app.bom.is_some(), "assembly.bom"),
         (app.material_card_review.is_some(), "material.properties.validate"),
+        (app.luggage.is_open(false), "luggage.workspace"),
+        (app.luggage.is_open(true), "luggage.estimate_tooling"),
         (app.help.about, "about"),
         (app.updater.open, "updates"),
         (app.keymap.open, "shortcuts"),

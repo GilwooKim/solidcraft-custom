@@ -160,7 +160,7 @@ impl Lines {
 
 /// What SolidCraft says first, so the device app knows which program it is driving.
 fn hello() -> Value {
-    json!({"t": "hello", "app": "solidcraft", "version": env!("CARGO_PKG_VERSION")})
+    json!({"t": "hello", "app": "solidcraft", "version": solidcraft_ui_egui::update::current_version()})
 }
 
 /// Reads one connection until the device app closes it, it fails, or the preferences no longer

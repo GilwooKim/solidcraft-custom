@@ -29,11 +29,17 @@ pub fn word_cased(name: &str) -> String {
 /// A ribbon tab's name as the ribbon shows it, in the current language: "SHEET METAL" reads
 /// "Sheet Metal", or "Blech" in German. A partial catalog may translate only the word-cased name.
 pub fn tab_name(tab: &str) -> String {
+    if tab == "LUGGAGE" {
+        return solidcraft_ui_text::tr("luggage.tab").into();
+    }
+    if tab == "MOLD" {
+        return solidcraft_ui_text::tr("luggage.mold_tab").into();
+    }
     let cased = word_cased(solidcraft_ui_text::tr_label(tab_label(tab)));
     solidcraft_ui_text::tr_label(&cased).to_string()
 }
 
-pub const TABS: &[&str] = &["MODEL", "SURFACE", "ASSEMBLE", "INSERT", "INSPECT", "MANAGE", "VIEW"];
+pub const TABS: &[&str] = &["MODEL", "LUGGAGE", "MOLD", "SURFACE", "ASSEMBLE", "INSERT", "INSPECT", "MANAGE", "VIEW"];
 
 /// Every tab's exact registry name with its accent: the contextual and specialty tabs, and the
 /// legacy Render sub-tabs that still share the Render accent. Theme files key their per-tab
@@ -41,6 +47,8 @@ pub const TABS: &[&str] = &["MODEL", "SURFACE", "ASSEMBLE", "INSERT", "INSPECT",
 /// and the utility tabs keep the main accent.
 pub const TAB_ACCENTS: TabTable = TabTable::new(&[
     tab_style("MODEL", AccentRamp::Main, None),
+    tab_style("LUGGAGE", AccentRamp::Main, None),
+    tab_style("MOLD", AccentRamp::Main, None),
     tab_style("SKETCH", AccentRamp::Sketch, Some("sketch")),
     tab_style("SURFACE", AccentRamp::Surface, Some("surface")),
     tab_style("MESH", AccentRamp::Mesh, Some("mesh")),
@@ -244,6 +252,16 @@ const CONFIGURE: &[&str] = &["parameters.change", "config.table", "config.config
 pub const AGENT_ONLY: &[&str] = &["sketch.solve", "sketch.move3d"];
 
 pub const SECTIONS: &[Section] = &[
+    Section { tab: "LUGGAGE", panel: "DESIGN", promoted: 3, ids: &["luggage.workspace", "parameters.change", "config.table"] },
+    Section { tab: "LUGGAGE", panel: "CREATE", promoted: 4, ids: &["sketch.create", "solid.loft", "solid.shell", "solid.fillet"] },
+    Section { tab: "LUGGAGE", panel: "ASSEMBLE", promoted: 3, ids: &["component.insert_design", "joint.create", "motion.interference"] },
+    Section { tab: "LUGGAGE", panel: "CHECK", promoted: 3, ids: &["luggage.check_envelope", "inspect.measure", "inspect.interference"] },
+    Section { tab: "MOLD", panel: "SETUP", promoted: 3, ids: &["luggage.estimate_tooling", "material.assign", "plastic.manage_rules"] },
+    Section { tab: "MOLD", panel: "CHECK", promoted: 3, ids: &["inspect.draft", "inspect.accessibility", "inspect.minimum_radius"] },
+    Section { tab: "MOLD", panel: "MODIFY", promoted: 3, ids: &["solid.scale", "solid.split_body", "solid.combine"] },
+    Section { tab: "LUGGAGE", panel: "FILES", promoted: 3, ids: &["file.insert_step", "file.insert_mesh", "file.export", "file.save_mesh"] },
+    Section { tab: "MOLD", panel: "FILES", promoted: 3, ids: &["assembly.bom", "file.export", "file.save_mesh"] },
+    Section { tab: "MOLD", panel: "CREATE", promoted: 3, ids: &["plastic.boss", "plastic.lip", "plastic.snap_fit"] },
     Section {
         tab: "MODEL",
         panel: "SKETCH",
@@ -530,6 +548,12 @@ const LEGACY_RENDER_SECTIONS: &[Section] = &[
 /// Compact source labels for painted big buttons only. Menus, search and tooltips
 /// retain the engine label. Route these through `tr_label`, like other UI labels.
 pub const RIBBON_LABELS: &[(&str, &str)] = &[
+    ("assembly.bom", "BOM"),
+    ("inspect.minimum_radius", "Min. Radius"),
+    ("luggage.check_envelope", "Envelope"),
+    ("luggage.estimate_tooling", "Tooling"),
+    ("luggage.workspace", "Luggage"),
+    ("motion.interference", "Motion Check"),
     ("render.batch", "All Shots"),
     ("render.cancel", "Cancel"),
     ("render.export", "Export Image"),
@@ -671,7 +695,14 @@ pub(crate) fn legacy_render_destination(c: &CommandSpec) -> Option<(&'static str
         _ => None,
     };
     primary
-        .or_else(|| SECTIONS.iter().chain(LEGACY_RENDER_SECTIONS).find(|s| s.ids.contains(&c.id)).map(|s| (s.tab, s.panel)))
+        .or_else(|| {
+            SECTIONS
+                .iter()
+                .filter(|s| c.id.starts_with("luggage.") || !matches!(s.tab, "LUGGAGE" | "MOLD"))
+                .chain(LEGACY_RENDER_SECTIONS)
+                .find(|s| s.ids.contains(&c.id))
+                .map(|s| (s.tab, s.panel))
+        })
         .or_else(|| PLACEMENTS.iter().find(|(t, p, ..)| *t == c.tab && *p == c.panel).map(|(_, _, t, p)| (*t, *p)))
 }
 
@@ -779,6 +810,8 @@ pub const SPECIALTY_TABS: &[SpecialtyTab] =
 pub fn tab_icon(tab: &str) -> &'static str {
     match tab {
         "MODEL" => "extrude",
+        "LUGGAGE" => "inspect",
+        "MOLD" => "measure",
         "SURFACE" => "surface_extrude",
         "ASSEMBLE" => "joint",
         "INSERT" => "import",
@@ -1002,8 +1035,10 @@ mod tests {
         type Slots = fn(&Tokens) -> [egui::Color32; 3];
         let main: Slots = |t| [t.accent, t.selected_ink, t.accent_soft];
         let render: Slots = |t| [t.render_fill, t.render_ink, t.render_soft];
-        let tabs: [(&str, Slots, Option<&str>); 16] = [
+        let tabs: [(&str, Slots, Option<&str>); 18] = [
             ("MODEL", main, None),
+            ("LUGGAGE", main, None),
+            ("MOLD", main, None),
             ("SKETCH", |t| [t.sketch_accent, t.sketch_ink, t.sketch_soft], Some("sketch")),
             ("SURFACE", |t| [t.surface_fill, t.surface_ink, t.surface_soft], Some("surface")),
             ("MESH", |t| [t.mesh_fill, t.mesh_ink, t.mesh_soft], Some("mesh")),
@@ -1282,7 +1317,7 @@ mod tests {
         h.frames(2);
         assert_eq!(h.app.preferences.hidden_toolbar_tabs, ["MODEL"]);
         assert!(crate::scenario::handle_at("tab:MODEL").is_none());
-        assert_eq!(h.app.ui.tab, "SURFACE", "the first tab still shown is selected");
+        assert_eq!(h.app.ui.tab, "LUGGAGE", "the first tab still shown is selected");
 
         // Settings › Layout lists the standard tabs too.
         h.call("ui.prefs", json!({"open":"Layout"}));
@@ -1346,7 +1381,7 @@ mod tests {
         let rows: Vec<_> = crate::toolbar_custom::toolbar_items(&h.app).into_iter().filter(|i| i.id == "ui.toolbarTab").collect();
         assert_eq!(
             rows.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
-            ["Model", "Surface", "Assemble", "Insert", "Inspect", "Manage", "View", "Sheet Metal", "Weldments"]
+            ["Model", "Luggage", "Mold", "Surface", "Assemble", "Insert", "Inspect", "Manage", "View", "Sheet Metal", "Weldments"]
         );
         assert!(rows.iter().all(|i| i.shortcut == "current"), "all existing tabs stay on by default");
         h.step(&json!({"click":{"handle":"ribbon:add_tab"}})).unwrap();
@@ -1741,5 +1776,28 @@ mod tests {
         for kind in ["Model", "Sketch", "Sheet", "Render", "Animation"] {
             assert!(TAB_ACCENTS.contains(view_accent_tab(kind)), "{kind}");
         }
+    }
+    #[test]
+    fn luggage_ribbon_tools_keep_existing_command_homes() {
+        let mut h = crate::scenario::Harness::new();
+        assert!(visible_tabs(&h.app).contains(&"LUGGAGE"));
+        assert!(visible_tabs(&h.app).contains(&"MOLD"));
+        assert_eq!(destination(solidcraft_engine::find_command("solid.shell").unwrap()), Some(("MODEL", "MODIFY")));
+        assert_eq!(destination(solidcraft_engine::find_command("luggage.check_envelope").unwrap()), Some(("LUGGAGE", "CHECK")));
+        assert_eq!(destination(solidcraft_engine::find_command("luggage.estimate_tooling").unwrap()), Some(("MOLD", "SETUP")));
+        for tab in ["LUGGAGE", "MOLD"] {
+            for panel in panels(tab) {
+                for id in SECTIONS.iter().filter(|s| s.tab == tab && s.panel == panel).flat_map(|s| s.ids) {
+                    assert!(solidcraft_engine::find_command(id).is_some(), "missing tool {id}");
+                }
+            }
+        }
+        h.app.start("luggage.workspace");
+        assert_eq!(h.app.ui.tab, "LUGGAGE");
+        h.app.start("luggage.estimate_tooling");
+        assert_eq!(h.app.ui.tab, "MOLD");
+        assert_eq!(h.call("ui.inspect", serde_json::json!({}))["result"]["windows"], serde_json::json!(["luggage.estimate_tooling"]));
+        h.call("ui.start", serde_json::json!({"command":"luggage.workspace"}));
+        assert_eq!(h.call("ui.inspect", serde_json::json!({}))["result"]["windows"], serde_json::json!(["luggage.workspace"]));
     }
 }

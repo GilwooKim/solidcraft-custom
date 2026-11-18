@@ -185,6 +185,8 @@ fn the_portable_zip_swaps_both_executables() {
     let exe = dir.join("solidcraft.exe");
     std::fs::write(&exe, b"old app").unwrap();
     std::fs::write(dir.join("solidcraft-cli.exe"), b"old cli").unwrap();
+    std::fs::write(dir.join("installer-language.txt"), b"ko").unwrap();
+    std::fs::write(dir.join("app.ron"), b"saved preferences").unwrap();
     let mut zip_bytes = Vec::new();
     {
         let mut z = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_bytes));
@@ -196,6 +198,8 @@ fn the_portable_zip_swaps_both_executables() {
             ("vcruntime140.dll", b"new runtime"),
             ("NOTICE", b"new notice"),
             ("README.md", b"readme"),
+            ("installer-language.txt", b"vi"),
+            ("app.ron", b"replacement preferences"),
         ] {
             z.start_file(format!("solidcraft-9.9.9-windows-x64-portable/{n}"), o).unwrap();
             z.write_all(b).unwrap();
@@ -213,6 +217,8 @@ fn the_portable_zip_swaps_both_executables() {
     assert_eq!(std::fs::read(dir.join("vcruntime140.dll")).unwrap(), b"new runtime");
     assert_eq!(std::fs::read(dir.join("NOTICE")).unwrap(), b"new notice");
     assert!(!dir.join("README.md").exists(), "unlisted package entries are not installed");
+    assert_eq!(std::fs::read(dir.join("installer-language.txt")).unwrap(), b"ko");
+    assert_eq!(std::fs::read(dir.join("app.ron")).unwrap(), b"saved preferences");
     assert!(!dir.join("staging").join(name).exists(), "the zip is removed");
     // A zip without the app is refused and changes nothing.
     std::fs::write(dir.join("empty.zip"), {
@@ -225,9 +231,101 @@ fn the_portable_zip_swaps_both_executables() {
     assert_eq!(std::fs::read(&exe).unwrap(), b"new app");
     // The moved-aside executable of an update goes at the next start.
     std::fs::write(dir.join("solidcraft.exe.old"), b"x").unwrap();
+    std::fs::write(dir.join("vcruntime140.dll.old"), b"old runtime").unwrap();
+    std::fs::write(dir.join("unlisted.txt.old"), b"user file").unwrap();
     clean_up_after_update(Some(&exe));
     assert!(!dir.join("solidcraft.exe.old").exists());
+    assert!(!dir.join("vcruntime140.dll.old").exists());
+    assert!(dir.join("unlisted.txt.old").exists());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn a_windows_file_lock_does_not_leave_a_mixed_package() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let dir = scratch("portable-windows-lock");
+    let app = dir.join("solidcraft.exe");
+    let cli = dir.join("solidcraft-cli.exe");
+    std::fs::write(&app, b"old app").unwrap();
+    std::fs::write(&cli, b"old cli").unwrap();
+    let files: Vec<_> = [&app, &cli]
+        .into_iter()
+        .map(|target| {
+            let new = target.with_extension("update");
+            std::fs::write(&new, b"new version").unwrap();
+            (target.clone(), new)
+        })
+        .collect();
+    let locked = std::fs::OpenOptions::new().read(true).share_mode(0).open(&cli).unwrap();
+    assert!(swap_package_with(&files, |from, to| std::fs::rename(from, to)).is_err());
+    drop(locked);
+    assert_eq!(std::fs::read(&app).unwrap(), b"old app");
+    assert_eq!(std::fs::read(&cli).unwrap(), b"old cli");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_later_package_failure_restores_every_earlier_file() {
+    for fail_at in ["move_cli", "install_cli"] {
+        let dir = scratch(&format!("portable-rollback-{fail_at}"));
+        let app = dir.join("solidcraft.exe");
+        let cli = dir.join("solidcraft-cli.exe");
+        let added = dir.join("vcruntime140.dll");
+        std::fs::write(&app, b"old app").unwrap();
+        std::fs::write(&cli, b"old cli").unwrap();
+        let files: Vec<_> = [(&app, b"new app".as_slice()), (&added, b"new runtime".as_slice()), (&cli, b"new cli".as_slice())]
+            .into_iter()
+            .map(|(target, content)| {
+                let new = target.with_extension("update");
+                std::fs::write(&new, content).unwrap();
+                (target.clone(), new)
+            })
+            .collect();
+        let mut failed = false;
+        let result = swap_package_with(&files, |from, to| {
+            let boundary = if fail_at == "move_cli" { from == cli } else { from == cli.with_extension("update") };
+            if boundary && !failed {
+                failed = true;
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected later-file failure"));
+            }
+            std::fs::rename(from, to)
+        });
+        assert!(failed && result.unwrap_err().contains("injected later-file failure"));
+        assert_eq!(std::fs::read(&app).unwrap(), b"old app");
+        assert_eq!(std::fs::read(&cli).unwrap(), b"old cli");
+        assert!(!added.exists(), "a new file installed before the failure is removed");
+        assert!(files.iter().all(|(_, new)| !new.exists()), "staged files are cleaned after failure");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2, "only the original files remain");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[test]
+fn a_failed_rollback_keeps_the_backup_out_of_startup_cleanup() {
+    let dir = scratch("portable-failed-rollback");
+    let app = dir.join("solidcraft.exe");
+    let new = dir.join("solidcraft.exe.update");
+    let backup = dir.join("solidcraft.exe.update-backup");
+    std::fs::write(&app, b"old app").unwrap();
+    std::fs::write(&new, b"new app").unwrap();
+    let files = vec![(app.clone(), new.clone())];
+    let error = swap_package_with(&files, |from, to| {
+        if to == app {
+            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "destination became unavailable"))
+        } else {
+            std::fs::rename(from, to)
+        }
+    })
+    .unwrap_err();
+    assert!(error.contains("rollback retained"), "{error}");
+    clean_up_after_update(Some(&app));
+    assert_eq!(std::fs::read(&backup).unwrap(), b"old app");
+    std::fs::write(&new, b"retry").unwrap();
+    assert!(swap_package_with(&files, |from, to| std::fs::rename(from, to)).unwrap_err().contains("previous update recovery file"));
+    assert_eq!(std::fs::read(&backup).unwrap(), b"old app", "retry never erases recovery evidence");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

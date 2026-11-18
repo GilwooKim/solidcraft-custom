@@ -1,0 +1,26 @@
+{
+  "id": {
+    "prefs.general.active": "Aktif",
+    "prefs.general.crash_reports": "Laporan kerusakan",
+    "prefs.general.edited": "Diubah",
+    "prefs.general.held": "Termasuk",
+    "prefs.general.import": "Impor...",
+    "prefs.general.last_check": "Terakhir diperiksa: {time}",
+    "prefs.general.minutes": "Menit",
+    "prefs.general.name_setup": "Beri nama pengaturan ini",
+    "prefs.general.profile_name": "Nama profil",
+    "prefs.general.save_new": "Simpan sebagai baru",
+    "prefs.general.step_import": "STEP dan impor",
+    "prefs.general.this_computer": "Komputer ini",
+    "prefs.restore_page_defaults": "Kembalikan pengaturan bawaan halaman",
+    "prefs.save_prompt_one_at_a_time": "Konfirmasi setiap desain yang belum disimpan secara terpisah saat menutup beberapa desain",
+    "prefs.security": "Keamanan",
+    "ui.on_startup": "Saat memulai",
+    "ui.on_startup_note": "Pilih Beranda atau desain baru Tanpa judul saat memulai tanpa berkas atau menutup dokumen terakhir."
+  },
+  "ko": {
+    "prefs.security": "보안",
+    "ui.on_startup": "시작 시",
+    "ui.on_startup_note": "파일 없이 시작하거나 마지막 문서를 닫을 때 홈 화면 또는 새 ‘제목 없음’ 디자인을 열도록 선택합니다."
+  }
+}

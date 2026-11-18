@@ -1737,3 +1737,62 @@ fn restarting_a_curve_returns_typed_errors_with_its_operation() {
         }
     ));
 }
+
+/// Interior projections do not authorize a straight UV candidate to leave a bounded patch.
+/// The lift on the extrapolated plane is exact, so distance-only acceptance misses the error.
+#[test]
+fn an_extrapolated_uv_pace_stays_inside_the_nonperiodic_face_box() {
+    let surface = Surface::RationalSpline {
+        u_knots: vec![0., 0., 1., 1.],
+        v_knots: vec![0., 0., 1., 1.],
+        homogeneous: vec![
+            vec![[0., 0., 0., 1.], [0., 1., 0., 1.]],
+            vec![[1., 0., 0., 1.], [1., 1., 0., 1.]],
+        ],
+    };
+    let curve = Curve::Line {
+        start: [-0.1, 0.5, 0.],
+        end: [1.1, 0.5, 0.],
+    };
+    let uses = one(&curve, [0., 1.]);
+    // With no face box, the surface's continuation is permitted. With a box, no pcurve on that
+    // patch exists for this edge. The caller must construct its trim, not accept extrapolation.
+    assert!(exact_pcurves(&surface, &uses, 0.1, None).unwrap()[0][0].is_some());
+    let bounded = exact_pcurves(&surface, &uses, 0.1, Some([[0., 1.], [0., 1.]])).unwrap();
+    assert!(
+        bounded[0][0].is_none(),
+        "an exterior UV segment was accepted: {bounded:?}"
+    );
+    // A bounded candidate within the edge's tolerance remains valid: this is not a demand
+    // for exact endpoint agreement or a rejection of every edge that extends past the patch.
+    let near = Curve::Line {
+        start: [-0.01, 0.5, 0.],
+        end: [1.01, 0.5, 0.],
+    };
+    let bounded = exact_pcurves(
+        &surface,
+        &one(&near, [0., 1.]),
+        0.1,
+        Some([[0., 1.], [0., 1.]]),
+    )
+    .unwrap();
+    assert_eq!(
+        segment_points(bounded[0][0].as_ref().unwrap()),
+        [[0., 0.5], [1., 0.5]]
+    );
+    let inside = Curve::Line {
+        start: [0., 0.5, 0.],
+        end: [1., 0.5, 0.],
+    };
+    let bounded = exact_pcurves(
+        &surface,
+        &one(&inside, [0., 1.]),
+        0.1,
+        Some([[0., 1.], [0., 1.]]),
+    )
+    .unwrap();
+    assert_eq!(
+        segment_points(bounded[0][0].as_ref().unwrap()),
+        [[0., 0.5], [1., 0.5]]
+    );
+}

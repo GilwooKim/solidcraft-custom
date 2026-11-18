@@ -213,6 +213,7 @@ mod file_load_ui_tests;
 #[cfg(test)]
 mod fillet_spline_handle_tests;
 pub(crate) mod import_report;
+mod luggage_ui;
 pub mod mouse_gesture;
 use solidcraft_ui_kit::nav_bar;
 pub(crate) mod navigation;
@@ -666,6 +667,7 @@ pub struct SolveApp {
     pub(crate) plugin_install: plugin_install::State,
     /// What an importer plugin could not carry over from the file it just opened.
     pub(crate) import_report: Option<import_report::Shown>,
+    pub(crate) luggage: luggage_ui::Workbench,
     /// A Save or Save As being written on a worker (see [`save_job`]).
     saving: Option<save_job::Saving>,
     /// A signature check running on a worker (see [`verify_job`]).
@@ -1033,6 +1035,7 @@ impl SolveApp {
             easyprint: Default::default(),
             plugin_install: Default::default(),
             import_report: None,
+            luggage: luggage_ui::Workbench::default(),
             saving: None,
             verifying: None,
             viewport: viewport::ViewportState::default(),
@@ -2099,6 +2102,18 @@ impl SolveApp {
         // A tool can be started outside the frame's scope (a direct `start`, a shortcut in
         // `logic`): build its hint in the user's language, not the thread default.
         let _language = solidcraft_ui_text::scope(&self.preferences.language);
+        if id == "file.export" {
+            if !toolbar::FileAction::Export("step").enabled(self) || self.session.model.state().bodies.is_empty() {
+                return;
+            }
+            let name = export_name::offered(self, None, &self.session.doc.name);
+            self.pick_save_command(&format!("{name}.step"), &["step", "stp", "igs", "iges", "stl", "3mf", "obj", "glb"], "file.export", json!({}));
+            return;
+        }
+        if matches!(id, "luggage.workspace" | "luggage.check_envelope" | "luggage.estimate_tooling") {
+            luggage_ui::open(self, id == "luggage.estimate_tooling");
+            return;
+        }
         if solidcraft_engine::panels::commands::is_command(id) {
             if let Err(why) = self.run(id, json!({})) {
                 self.set_status(why, true);
@@ -4149,6 +4164,7 @@ impl SolveApp {
         easyprint_ui::show(self, ui.ctx());
         plugin_install::show(self, ui.ctx());
         import_report::show(self, ui.ctx());
+        luggage_ui::show(self, ui.ctx());
         linked_source::show_copies(self, ui.ctx());
         joint_handles::show_warning(self, ui.ctx());
         shortcut_box::show(self, ui.ctx());

@@ -1,4 +1,29 @@
 {
-  "en": {"update.auto_install_custom": "Install Windows updates automatically (takes effect next launch)"},
-  "ko": {"update.auto_install_custom": "Windows 업데이트 자동 설치 (다음 실행부터 적용)"}
+  "en": {
+    "update.auto_install_custom": "Install Windows updates automatically (takes effect next launch)"
+  },
+  "id": {
+    "update.auto_install_custom": "Pasang pembaruan Windows secara otomatis (berlaku saat aplikasi dibuka lagi)"
+  },
+  "ko": {
+    "update.auto_install_custom": "Windows 업데이트 자동 설치 (다음 실행부터 적용)"
+  },
+  "vi": {
+    "update.auto_install_custom": "Tự động cài bản cập nhật Windows (áp dụng khi mở ứng dụng lần sau)"
+  },
+  "ar": {
+    "update.auto_install_custom": "تثبيت تحديثات Windows تلقائيًا (يسري عند التشغيل التالي)"
+  },
+  "de": {
+    "update.auto_install_custom": "Windows-Updates automatisch installieren (wirksam beim nächsten Start)"
+  },
+  "he": {
+    "update.auto_install_custom": "התקנת עדכוני Windows אוטומטית (ייכנס לתוקף בהפעלה הבאה)"
+  },
+  "ja": {
+    "update.auto_install_custom": "Windowsの更新を自動インストール（次回起動時から有効）"
+  },
+  "zh": {
+    "update.auto_install_custom": "自动安装Windows更新（下次启动时生效）"
+  }
 }

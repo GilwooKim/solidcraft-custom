@@ -1495,16 +1495,7 @@ fn brute_force(
     fail.create_path_type = CreateUvTrimCurvePathType::PointDropDegenCurveRecovery;
     fail.brep = brep_handle(b, eu)?;
 
-    let mut new_curve = BSplineCurve::interpolate_points(
-        &points,
-        Some(&params),
-        3, // in : degree
-        None,
-        None,
-        false,
-        ParamMethod::ChordLength,
-    )?;
-    new_curve.convert_to_2d()?;
+    let new_curve = interpolate_uv_samples(&points, &params)?;
 
     // clean up Surface Cache side-effect of attaching 2nd UVTrimCurve
     if !uv_trim_at_start && uv_trim_curve(b, eu)?.0.is_some() {
@@ -1518,6 +1509,22 @@ fn brute_force(
         max_dist_to_surf: d,
         max_deviation: dv,
     })
+}
+
+/// Interpolate the retained UV samples at their edge parameters. Filtering can leave only
+/// two or three samples: use their linear or quadratic interpolant, never an underdetermined
+/// cubic. The given-parameter constructor also supports degree one without remapping time.
+fn interpolate_uv_samples(points: &[Point3], params: &[f64]) -> Result<BSplineCurve> {
+    BSplineCurve::create_interpolating_curve_with_params(
+        ParamMethod::ChordLength,
+        2,
+        3.min(points.len().saturating_sub(1)),
+        points,
+        &[],
+        None,
+        true,
+        Some(params),
+    )
 }
 
 // ---- GetOrCreateUVTrimCurve -------------------------------------------------------------
@@ -2887,5 +2894,51 @@ mod tests {
                 && are_same(ivl.max(), 26.992_802_825_478_737),
             "the longer piece is kept: {ivl:?}"
         );
+    }
+    #[test]
+    fn uv_sample_interpolation_uses_a_supported_degree_and_keeps_parameters() {
+        let samples = [
+            Point3::new(1.0, 0.0002, 0.0),
+            Point3::new(1.0, 0.00004, 0.0),
+        ];
+        let c = interpolate_uv_samples(&samples, &[2.0, 6.0]).unwrap();
+        let n = c.gw_nurb().unwrap();
+        assert_eq!((n.degree(), n.cpts().len()), (1, 2));
+        assert_eq!(n.knots(), &[2.0, 2.0, 6.0, 6.0]);
+        let mid = c.evaluate(4.0, 0, true, true).unwrap()[0];
+        assert!((mid.x - 1.0).abs() < 1e-14 && (mid.y - 0.00012).abs() < 1e-14);
+        for params in [
+            vec![2.0, 3.0, 6.0],
+            vec![2.0, 3.0, 4.0, 6.0],
+            vec![2.0, 2.5, 3.0, 4.0, 6.0],
+        ] {
+            let points: Vec<_> = params.iter().map(|&t| Point3::new(t, t * t, 0.0)).collect();
+            let c = interpolate_uv_samples(&points, &params).unwrap();
+            let n = c.gw_nurb().unwrap();
+            assert_eq!(n.degree(), 3.min(points.len() - 1));
+            assert!(n.cpts().len() > n.degree());
+            for (&t, point) in params.iter().zip(&points) {
+                let got = c.evaluate(t, 0, true, true).unwrap()[0];
+                assert!((got.x - point.x).abs() < 1e-10 && (got.y - point.y).abs() < 1e-10);
+            }
+            if points.len() >= 4 {
+                let old = BSplineCurve::interpolate_points(
+                    &points,
+                    Some(&params),
+                    3,
+                    None,
+                    None,
+                    false,
+                    ParamMethod::ChordLength,
+                )
+                .unwrap();
+                for i in 0..=16 {
+                    let t = 2.0 + 4.0 * f64::from(i) / 16.0;
+                    let got = c.evaluate(t, 0, true, true).unwrap()[0];
+                    let was = old.evaluate(t, 0, true, true).unwrap()[0];
+                    assert!((got.x - was.x).abs() < 1e-10 && (got.y - was.y).abs() < 1e-10);
+                }
+            }
+        }
     }
 }

@@ -478,7 +478,7 @@ pub fn knot_vector_approx(u: &[f64], n: usize, p: usize) -> Result<Vec<f64>> {
 ///
 /// # Errors
 ///
-/// [`NurbsFailure::Input`] when `knt` does not have `n + p + 2` knots or a basis span
+/// [`NurbsFailure::Input`] when `p` is outside `1..=n`, `knt` does not have `n + p + 2` knots or a basis span
 /// falls outside the matrix band; errors of [`KnotVector::basis_eval`] and of the
 /// LU decomposition and solve (`NL_NUM_ERR` for a singular system); `InvalidInput`
 /// for empty `a` or too few parameters.
@@ -491,6 +491,11 @@ pub fn interp_given_params<P: FitPoint>(
     const OP: &str = "nurbs::crv_fit::p1::interp_given_params";
     let n = hi(a, OP, "no data points")?;
     let p = sg(p, OP)?;
+    // With no derivative constraints there are n + 1 unknown control points. A
+    // degree above n cannot form a B-spline, even if the endpoint-only matrix solves.
+    if p < 1 || p > n {
+        return Err(SolidError::nurbs(OP, NurbsFailure::Input));
+    }
 
     // Check for curve memory.
     let m = sg(knt.last_index(), OP)?;
@@ -1213,5 +1218,35 @@ mod tests {
         assert!(approx_knots(&a, &u, &knt, big, big).is_err());
         let cm = RealMatrix::new(4, 4, MatrixType::Full, 0).unwrap();
         assert!(derivs_matrix(&a, big, &knt, a[0], a[1], &cm).is_err());
+    }
+    #[test]
+    fn interpolation_refuses_a_degree_above_its_unconstrained_point_count() {
+        let a = pts(&[[0.0, 0.0, 0.0], [1.0, 2.0, 0.0]]);
+        let u = [2.0, 6.0];
+        for (degree, knots) in [
+            (0, vec![2.0, 6.0, 6.0]),
+            (3, vec![2.0, 2.0, 2.0, 2.0, 6.0, 6.0]),
+        ] {
+            let r = interp_given_params(&a, &u, &KnotVector::from_slice(&knots).unwrap(), degree);
+            assert!(
+                matches!(r, Err(ref e) if matches!(e.nurbs_failure(), Some(NurbsFailure::Input))),
+                "{r:?}"
+            );
+        }
+        // Two points plus two end tangents provide four constraints: cubic Hermite is valid.
+        let c = crate::nurbs::b_spline_curve::BSplineCurve::interpolate_points(
+            &a,
+            Some(&u),
+            3,
+            Some(Vec3::new(1.0, 0.0, 0.0)),
+            Some(Vec3::new(0.0, 1.0, 0.0)),
+            false,
+            ParamMethod::ChordLength,
+        )
+        .unwrap();
+        let curve = c.gw_nurb().unwrap();
+        assert_eq!((curve.degree(), curve.cpts().len()), (3, 4));
+        assert!((eval(curve, u[0]) - a[0]).length() < 1e-12);
+        assert!((eval(curve, u[1]) - a[1]).length() < 1e-12);
     }
 }

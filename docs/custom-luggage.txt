@@ -1,0 +1,27 @@
+SolidCraft Custom: luggage and mold workbench
+
+Languages
+The Windows installer offers English, Korean, Indonesian and Vietnamese. On a first launch without saved preferences, its selection becomes the interface language. Existing saved preferences, including System, win on upgrades. Preferences > General > Interface language changes the language and saves it for subsequent launches. Safe mode ignores the installer default. These four interface catalogs cover every English catalog message; coverage checks reject missing translations. File-format names, formulas and established technical terms can remain unchanged across languages. Engine diagnostic details, model names and API payloads retain their original text.
+
+The Luggage and Mold ribbon tabs share the existing geometry, assembly and file commands. Their addition does not change the original tools or their canonical tabs. Tabs can be hidden with the existing ribbon visibility controls.
+
+New commands
+- luggage.workspace {}: reports the actual format registry. Interactive invocation opens the workbench.
+- luggage.check_envelope {limits_mm:[400,550,230],max_sum_mm:1180}: measures all world-space bodies, including hidden bodies, against explicitly supplied X/Y/Z and sum limits. The example is not an airline rule. Include wheels and retract handles before checking. A mesh is measured as a mesh; missing geometry or an incomplete assembly is not certified by a passing envelope check. Desktop checks run on a cancellable worker; closing the window or changing the design/inputs discards stale results.
+- luggage.estimate_tooling {projected_area_mm2:4676,runner_area_mm2:0,cavities:2,cavity_pressure_mpa:40,safety_factor:1.2,shrinkage_percent:0.6,sheet_thickness_mm:4,opening_area_mm2:204794,formed_area_mm2:369478}: preliminary, explicit-input calculations. Results retain inputs for review.
+
+Calculation conventions
+Clamp force [N] = (product projected area per cavity * cavity count + total runner projected area) [mm2] * mean cavity pressure [MPa] * safety factor. 1 MPa = 1 N/mm2; 1 metric ton-force = 9806.65 N.
+Mold scale = 1/(1-shrinkage/100), with shrinkage defined relative to mold size. This returns a scale; it does not modify the model.
+Average formed thickness = sheet thickness * clamp opening area / formed area. This is an area-conservation estimate, not minimum wall thickness or a forming simulation.
+The tools do not automatically extract projected area, select a machine, validate tooling release, or calculate injection flow/cooling.
+
+Exchange
+The ribbon Export action offers STEP, IGES, STL, 3MF, OBJ and GLB through existing writers, with the output extension selecting the format. This action exports the full design. Selected-body export remains available through the body context menu; mesh export through Save as Mesh. Native SolidCraft files preserve editable feature history. STEP/IGES exchange supported geometry, not the originating CAD feature history. Mesh conversion cannot recover original smooth surfaces or parametric features. The workbench lists read and write capabilities separately. Proprietary native CAD formats are not promised merely because a file picker can show them.
+
+Next engineering milestones
+1. Reference-assembly round-trip fidelity, open-body diagnostics, batch part exports and assembly metadata.
+2. Parametric luggage shell/ribs/flanges and component-driven wheel/handle pockets, with wall thickness, draft, symmetry and motion-clearance regression checks.
+3. Linked mold shrinkage, parting/shutoff surfaces, core/cavity generation and volume/opening verification.
+4. Mold bases, slides, lifters, ejection, cooling, gates/runners/vents, manufacturing packages, quotations and trial history.
+The current workbench is the first integration increment, not the completed luggage/mold system. Customer reference geometry and planning documents are kept outside this public source repository.

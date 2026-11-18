@@ -2920,3 +2920,83 @@ fn restarted_curve_errors_keep_their_step_messages() {
     let open = BCurve::Polyline { points: vec![[0.; 3], [1.; 3], [2.; 3]] };
     assert_eq!(crate::kernel::restart_curve(&open, 0.5).unwrap_err(), "spline seam endpoints do not coincide");
 }
+
+/// A point displaced outwards along a convex ellipse's normal has its unique nearest
+/// point at the foot of that normal, not at its radially scaled angle.
+#[test]
+fn off_curve_ellipse_vertices_use_nearest_points_without_changing_arc_sense() {
+    let position = Placement { origin: [0.0; 3], axis: [0.0, 0.0, 1.0], ref_direction: [1.0, 0.0, 0.0] };
+    for (radii, start, offset) in [
+        ([4.0, 1.0], 0.7, 0.01),
+        ([1.0, 4.0], 2.1, 0.001),
+        ([100.0, 1.0], 3.5, 0.1),
+        ([4.0, 1.0], 5.9, 0.01),
+        ([4.0, 1.0], 0.0, 0.01),
+        ([1.0, 1.0], 0.7, 0.01),
+    ] {
+        let curve = Curve::Ellipse { position, semi_axis_1: radii[0], semi_axis_2: radii[1] };
+        let point = |t: f64, h: f64| {
+            let n = [t.cos() / radii[0], t.sin() / radii[1]];
+            let length = n[0].hypot(n[1]);
+            [radii[0] * t.cos() + h * n[0] / length, radii[1] * t.sin() + h * n[1] / length, 0.0]
+        };
+        for offset in [0.0, offset] {
+            let end = (start + 0.8) % TAU;
+            let (ps, pe) = (point(start, offset), point(end, offset));
+            for same in [false, true] {
+                let mapped = map_edge(&curve, ps, pe, same, false, false, 0.001).unwrap();
+                let lo = if same { start } else { end };
+                let hi = lo + (if same { end - start } else { start - end }).rem_euclid(TAU);
+                let angular_error = if offset == 0.0 { 1e-14 } else { 2e-7 };
+                assert!(
+                    (mapped.interval[0] - lo).abs() < angular_error && (mapped.interval[1] - hi).abs() < angular_error,
+                    "radii={radii:?}, offset={offset}, same={same}: {:?} != [{lo}, {hi}]",
+                    mapped.interval
+                );
+                assert_eq!(mapped.with_step, same);
+                assert!(!mapped.sense_mismatch);
+                let full = map_edge(&curve, ps, ps, same, true, true, 0.001).unwrap();
+                assert!((full.interval[1] - full.interval[0] - TAU).abs() < 1e-13);
+            }
+        }
+    }
+}
+
+/// A seam is an arbitrary parameter boundary, not permission to collapse a short ellipse arc.
+#[test]
+fn off_curve_ellipse_vertices_near_the_seam_keep_short_arcs_in_both_frames() {
+    for position in [
+        Placement { origin: [0.0; 3], axis: [0.0, 0.0, 1.0], ref_direction: [1.0, 0.0, 0.0] },
+        Placement { origin: [13.0, -7.0, 1000.0], axis: [0.0, 1.0, 0.0], ref_direction: [0.0, 0.0, 1.0] },
+    ] {
+        for radii in [[4.0, 1.0], [100.0, 1.0], [1.0, 100.0]] {
+            let curve = Curve::Ellipse { position, semi_axis_1: radii[0], semi_axis_2: radii[1] };
+            let point = |t: f64, offset: f64, axial: f64| {
+                let n = [t.cos() / radii[0], t.sin() / radii[1]];
+                let length = n[0].hypot(n[1]);
+                let x = radii[0] * t.cos() + offset * n[0] / length;
+                let y = radii[1] * t.sin() + offset * n[1] / length;
+                let y_axis = position.y();
+                std::array::from_fn(|i| position.origin[i] + x * position.ref_direction[i] + y * y_axis[i] + axial * position.axis[i])
+            };
+            for delta in [-1e-4_f64, -1e-6, 1e-6, 1e-4] {
+                let t = delta.rem_euclid(TAU);
+                let ps = point(t, 0.1, 0.001);
+                let pe = point(0.0, 0.0, 0.0);
+                // The old full-period projection snapped the start to zero and refused this
+                // valid edge as degenerate. The short arc crosses the seam only from below.
+                let same = delta < 0.0;
+                let m = map_edge(&curve, ps, pe, same, false, false, 0.001).unwrap();
+                let expected = if same { [t, TAU] } else { [0.0, t] };
+                assert!(m.interval[1] > m.interval[0]);
+                assert!(
+                    (m.interval[0] - expected[0]).abs() < 2e-7 && (m.interval[1] - expected[1]).abs() < 2e-7,
+                    "radii={radii:?}, delta={delta}, origin={:?}: {:?} != {expected:?}",
+                    position.origin,
+                    m.interval
+                );
+                assert_eq!(m.with_step, same);
+            }
+        }
+    }
+}

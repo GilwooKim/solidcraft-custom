@@ -1430,7 +1430,29 @@ fn conic(curve: BCurve, position: &Placement, radii: [f64; 2], ps: P3, pe: P3, s
         let q = sub(p, position.origin);
         angle_of(dot(q, position.ref_direction) / radii[0], dot(q, y) / radii[1])
     };
-    let (ts, te) = (param(ps), param(pe));
+    let mut ts = param(ps);
+    let mut te = param(pe);
+    // A radial inverse is exact on the ellipse, but not for an off-curve vertex.
+    // Keep its exact answer when it is nearer; otherwise use the existing curve projection.
+    if radii[0] != radii[1] {
+        let eval = CurveEval::new(&curve).map_err(|e| e.to_string())?;
+        let nearest = |p: P3, radial: f64| -> R<f64> {
+            let point = v3(p);
+            // Reflecting into the point's XY quadrant cannot increase distance. After
+            // reflection to the first quadrant, the distance derivative divided by
+            // sin(t)*cos(t) is strictly increasing for nonzero XY coordinates: one basin.
+            // Do not snap a nearby foot to an axis: it may bound a short, nonzero arc.
+            let quarter = TAU * 0.25;
+            let lo = (radial / quarter).floor() * quarter;
+            let hi = lo + quarter;
+            let candidate =
+                project_with_end_preference(&eval, lo, hi, &[], point, false).ok_or("no parameter for the ellipse's vertex")?.rem_euclid(TAU);
+            let distance = |t| eval.point(t).map_or(f64::INFINITY, |q| q.dist(point));
+            Ok(if distance(radial) <= distance(candidate) { radial } else { candidate })
+        };
+        ts = nearest(ps, ts)?;
+        te = nearest(pe, te)?;
+    }
     // Along the curve from `from` to `to`, increasing.
     let span = |from: f64, to: f64| if full { TAU } else { turn(to - from) };
     let (lo, d) = if same_sense { (ts, span(ts, te)) } else { (te, span(te, ts)) };
@@ -1596,6 +1618,10 @@ fn loop_on_open_curve(eval: &CurveEval, a: f64, b: f64, knots: &[f64], p: P3, to
 /// The parameter in [a, b] of the curve's point nearest `p`: the nearest of samples along each
 /// knot span, refined by golden-section search between its neighbours.
 pub(crate) fn project(c: &CurveEval, a: f64, b: f64, knots: &[f64], p: Vec3) -> Option<f64> {
+    project_with_end_preference(c, a, b, knots, p, true)
+}
+
+fn project_with_end_preference(c: &CurveEval, a: f64, b: f64, knots: &[f64], p: Vec3, prefer_ends: bool) -> Option<f64> {
     let mut breaks: Vec<f64> = knots.iter().copied().filter(|k| *k > a && *k < b).collect();
     breaks.dedup();
     let spans = breaks.len() + 1;
@@ -1647,9 +1673,9 @@ pub(crate) fn project(c: &CurveEval, a: f64, b: f64, knots: &[f64], p: Vec3) -> 
     // Prefer the domain's ends when they are just as near (a vertex at the seam).
     let near_end = |e: f64| (dist(e) - dist(t)).abs() <= 1e-12 * (1.0 + p.len());
     Some(
-        if near_end(a) {
+        if prefer_ends && near_end(a) {
             a
-        } else if near_end(b) {
+        } else if prefer_ends && near_end(b) {
             b
         } else {
             t

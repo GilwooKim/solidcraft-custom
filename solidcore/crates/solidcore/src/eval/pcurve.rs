@@ -636,8 +636,25 @@ impl On {
                 }
             }
         }
+        // These candidates are degree-1 segments. Their endpoints enclose the whole UV
+        // image, so both must lie in every nonperiodic direction of the supplied face box.
+        // A pace extrapolated from interior points can otherwise leave a rational patch even
+        // while its 3D lift stays within a loose edge tolerance. Periodic directions unwrap.
+        let inside = |p: &[f64; 2]| {
+            self.face.is_none_or(|bounds| {
+                p.iter()
+                    .zip(bounds)
+                    .zip(self.dom.period)
+                    .all(|((x, [lo, hi]), period)| {
+                        // The same parameter rounding allowance as `project_in`.
+                        let pad = 1e-9 * (1.0 + (hi - lo).abs());
+                        period.is_some() || (*x >= lo - pad && *x <= hi + pad)
+                    })
+            })
+        };
         candidates
             .into_iter()
+            .filter(|pc| matches!(pc, Curve2::Spline { points, .. } if points.iter().all(inside)))
             .find(|pc| self.lifts(pc, curve, [t0, t1], exact))
     }
 

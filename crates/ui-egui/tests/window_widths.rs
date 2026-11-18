@@ -28,6 +28,7 @@ fn kit_table_limit(id: egui::Id) -> Option<f32> {
         egui::Id::unique("sc_gesture_editor"),
         egui::Id::unique("sc_params_dialog"),
         egui::Id::unique("sc_material_card_review"),
+        egui::Id::unique("luggage_workbench"),
         egui::Id::unique(("sc_dialog", "CONFIGURATIONS")),
         egui::Id::unique(("sc_dialog", "MOTION STUDY")),
         egui::Id::unique(("sc_dialog", "EDIT MOTION STUDY")),
@@ -109,6 +110,11 @@ fn command_dialogs_shrink_to_their_content_within_limits() {
         h.app.bom = None;
         // Properties (Inspect → Measure) opens the Properties card.
         h.app.menu.props = None;
+        if spec.id.starts_with("luggage.") {
+            h.step(&json!({"click":{"handle":"dialog:cancel"}})).unwrap();
+            h.frames(2);
+            assert!(window_widths(&h).iter().all(|(id, _)| *id != egui::Id::unique("luggage_workbench")));
+        }
         if spec.id == "material.properties.validate" {
             h.step(&json!({"click":{"handle":"dialog:close"}})).unwrap();
         }

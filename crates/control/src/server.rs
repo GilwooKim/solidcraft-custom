@@ -1299,11 +1299,11 @@ mod tests {
             }
         });
         let hub = hub(Waits::default(), &WATCH);
+        let (ended, end) = channel();
         std::thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let (tx, hub) = (tx.clone(), Arc::clone(&hub));
-                std::thread::spawn(move || hub.serve(stream, token, tx, false));
-            }
+            let (stream, _) = listener.accept().unwrap();
+            hub.serve(stream, token, tx, false);
+            ended.send(()).unwrap();
         });
         let s = TcpStream::connect(addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -1315,16 +1315,35 @@ mod tests {
         let reply: Value = serde_json::from_str(&l).unwrap();
         assert!(reply["ok"] == true, "{reply}");
         assert!(WATCH.subscribed(), "the connection is subscribed");
-        // Let the events thread settle into its wait: the design stands still, so it has nothing
-        // to write, and only the end of the connection can retire it.
-        std::thread::sleep(Duration::from_millis(200));
         // The client goes away without asking anything else.
         drop((out, lines));
-        let deadline = Instant::now() + Duration::from_millis(400);
-        while WATCH.subscribed() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        // Windows may delay reporting a reset while another test inspects processes. Wait for
+        // the connection to end, not a wall-clock guess for when the OS will report it. The
+        // deterministic test below proves that its seat does not wait for the events thread.
+        end.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(!WATCH.subscribed(), "a closed connection is not counted on the watch");
+    }
+
+    #[test]
+    fn a_dropped_subscription_releases_the_seat_while_events_still_hold_it() {
+        static WATCH: DocumentWatch = DocumentWatch::new();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (socket, _) = listener.accept().unwrap();
+        let lines = Arc::new(Lines { socket, turn: Mutex::new(()) });
+        let stop = Arc::new(AtomicBool::new(false));
+        let seat = Arc::new(Seat::new(WATCH.join()));
+        let subscription = Subscription { lines, stop: Arc::clone(&stop), seat: Arc::clone(&seat) };
+        assert!(WATCH.subscribed());
+
+        // Keep the events thread's ownership alive. Dropping the connection must release the
+        // subscriber even if that thread has not resumed or dropped its copy of the seat.
+        drop(subscription);
+        assert!(stop.load(Ordering::Relaxed));
+        assert!(!WATCH.subscribed());
+        drop(seat);
+        assert!(!WATCH.subscribed(), "the seat leaves exactly once");
+        drop(client);
     }
 
     /// The token is read from a request object without building the rest of it: other fields,

@@ -113,6 +113,15 @@ pub struct FormatSpec {
     pub export: Option<ExportSpec>,
 }
 
+impl FormatSpec {
+    /// Whether every listed extension has an importer on this host. An export-only row
+    /// may share its reader with another row, as GLB does with glTF and JSON with designs.
+    /// This describes file readability, not preservation of every exported property.
+    pub fn readable(&self, native: bool) -> bool {
+        !self.extensions.is_empty() && self.extensions.iter().all(|ext| importable(native).any(|reader| reader.extensions.contains(ext)))
+    }
+}
+
 /// Which way is up in a STEP, IGES, FreeCAD or Rhino file (see `doc.open`).
 const UP_Z: OptionSpec = OptionSpec {
     param: "up",
@@ -470,6 +479,21 @@ pub fn plugin_open_filters() -> Vec<(String, Vec<String>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_aliases_report_their_shared_importers() {
+        for id in ["glb", "design-json", "3mf-tagged", "view-dxf"] {
+            let format = find(id).unwrap();
+            assert!(format.import.is_none(), "{id} uses another row's importer");
+            assert!(format.readable(true), "{id} can be read through its shared extension");
+            assert!(format.readable(false));
+        }
+        assert!(!find("urdf").unwrap().readable(true));
+        for id in ["fcstd", "3dm"] {
+            assert!(find(id).unwrap().readable(true));
+            assert!(!find(id).unwrap().readable(false));
+        }
+    }
 
     #[test]
     fn ids_are_unique_and_extensions_lower_case() {

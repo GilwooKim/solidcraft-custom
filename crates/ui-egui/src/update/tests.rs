@@ -805,11 +805,10 @@ fn releases_under_either_owner_are_accepted() {
         )
         .unwrap()
     };
-    for owner in ["GilwooKim/solidcraft-custom"] {
-        let r = parse(owner);
-        assert_eq!(r.page, format!("https://github.com/{owner}/releases/tag/v1.0.0"));
-        assert_eq!(r.assets.len(), 1, "{owner}");
-    }
+    let owner = "GilwooKim/solidcraft-custom";
+    let r = parse(owner);
+    assert_eq!(r.page, format!("https://github.com/{owner}/releases/tag/v1.0.0"));
+    assert_eq!(r.assets.len(), 1, "{owner}");
     // Any other owner, repository, host or scheme is dropped.
     for owner in ["evil/solidcraft", "GilwooKim/solidcraft-custom-evil", "tangency-labs.evil/solidcraft", "bherbruck/other"] {
         let r = parse(owner);

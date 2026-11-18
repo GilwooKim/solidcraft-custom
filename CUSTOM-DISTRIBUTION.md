@@ -6,7 +6,7 @@ Repository and releases: https://github.com/GilwooKim/solidcraft-custom
 
 ## Installation and updates
 
-Download the `solidcraft-<version>-windows-x64-setup.exe` release asset. The installer supports English and Korean, installs under the current user's LocalAppData, and creates a Start Menu shortcut. Developer tools and GitHub login are not required on employee PCs.
+Download the `solidcraft-<version>-windows-x64-setup.exe` stable release asset. The installer offers English, Korean, Indonesian and Vietnamese, installs under the current user's LocalAppData, and creates a Start Menu shortcut. Its language becomes the first-launch interface language when no preferences have been saved. Existing language preferences survive upgrades. General preferences can change the interface language after installation. Developer tools and GitHub login are not required on employee PCs.
 
 The installed app checks this repository at startup and daily while open. For this per-user Windows installation, it downloads a newer stable release's portable ZIP, verifies SHA-256 against that release's `SHA256SUMS.txt`, and replaces the binaries using the existing updater. The current session stays open; the new version runs at the next launch. The user can turn off automatic installation in General preferences while keeping notifications. Offline checks retry later; failed installations do not retry every frame. An external launcher or machine-wide MSI installation is never auto-installed by this feature.
 
@@ -27,6 +27,9 @@ Run `./Start-SolidCraft.ps1 -Sample` to build and launch a sample. The checkout 
 1. Update `packaging/windows/custom-version.txt` to a strictly newer stable version.
 2. Run the relevant tests, then `./packaging/windows/build-custom.ps1 -Iscc <path-to-ISCC.exe>`. Inno Setup 6 and Visual Studio C++ build tools are needed on the build machine.
 3. Test the installer and the portable ZIP. Outputs and checksums are under `dist/custom/<version>`.
-4. Commit the reviewed source and push a matching `v<version>` tag. `Custom Windows release` builds and publishes the installer, update ZIP and checksums. A manual workflow dispatch produces artifacts without publishing.
+4. Run `cargo xtask ci`, commit the reviewed source and push a matching `v<version>` tag. `Custom Windows release` builds the committed source and publishes the installer, update ZIP and checksums as a prerelease. A manual workflow dispatch produces artifacts without publishing.
+5. Verify those published files in an isolated installation and upgrade from the previous stable version. A local QA update feed may use the candidate's real asset URLs and checksums; record that metadata override separately from stable-release discovery. Promote the same release to stable/latest after verification, retaining its tag, asset IDs and hashes. Employee PCs then discover it automatically. A failed candidate remains a prerelease; use a new version for corrections.
 
 `SOLIDCRAFT_VERSION` is embedded by the packaging script; ordinary development builds do not contact the release feed. The custom installer has its own identity and folder, independent of upstream's MSI. Original upstream workflows are preserved under `.github/upstream-workflows` and do not run in this repository.
+
+The dedicated Luggage and Mold tabs are an initial workbench integration. See [the implemented commands and remaining engineering milestones](docs/custom-luggage.txt) for its scope.

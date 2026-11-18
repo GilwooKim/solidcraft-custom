@@ -12353,6 +12353,25 @@ mod tests {
         assert_eq!(other.tr("ui.preferences"), "環境設定");
     }
 
+    #[test]
+    fn custom_install_languages_switch_and_persist() {
+        let mut app = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+        for (language, tab, calculate) in [
+            ("en", "Luggage", "Calculate / check"),
+            ("ko", "러기지", "계산 / 검사"),
+            ("id", "Koper", "Hitung / periksa"),
+            ("vi", "Hành lý", "Tính toán / kiểm tra"),
+        ] {
+            set(&mut app, &json!({"language": language})).unwrap();
+            assert_eq!(app.tr("luggage.tab"), tab);
+            assert_eq!(app.tr("luggage.calculate"), calculate);
+            let mut restored = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+            restored.load_prefs(&app.prefs());
+            assert_eq!(restored.preferences.language, language);
+            assert_eq!(restored.tr("luggage.tab"), tab);
+        }
+    }
+
     /// A STEP file opened Z-up is offered to be stood up: a quarter turn about X, undoable.
     #[test]
     fn a_y_up_step_file_can_be_stood_up() {

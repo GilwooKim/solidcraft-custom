@@ -223,7 +223,7 @@ fn main() -> ExitCode {
         // The standard Assistant model test (#4851), run against a desktop app over its control channel.
         Some("bench-assistant") => bench_assistant::run(&args[1..]),
         Some("--version" | "-V") => {
-            println!("solidcraft-cli {}", env!("CARGO_PKG_VERSION"));
+            println!("solidcraft-cli {}", option_env!("SOLIDCRAFT_VERSION").filter(|v| !v.is_empty()).unwrap_or(env!("CARGO_PKG_VERSION")));
             Ok(())
         }
         // Asked-for help is not an error: usage on stdout, exit 0.

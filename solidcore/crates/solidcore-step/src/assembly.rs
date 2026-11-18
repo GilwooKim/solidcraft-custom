@@ -1057,13 +1057,16 @@ impl<'t> Assembly<'t> {
             None => (None, None, None),
         };
         let surface = form.clone().unwrap_or_else(|| label.clone());
+        // A spline already has its parameter box: projection must search its patch, not an
+        // extrapolated continuation. Use the same box for exact pcurves and kernel trims.
+        let parameter_box = box_on_form.or_else(|| natural_box(&surface));
         // A face that winds round its axis more than a turn is on a form that does not close:
         // no analytic surface has it (SMLib's cylinder is one turn), so it is a spline face.
         let wound = extent.is_some_and(crate::kernel::form::winds);
         // How far each edge lies off this surface, so its closed form is checked at that.
         self.measure_edges(&label, &edge_loops)?;
         // Closed forms where the geometry has them; the kernel makes the rest (`trims`).
-        let mut exact = pcurve::exact_pcurves(&surface, &uses_of(&self.edges, &edge_loops, None)?, tol, box_on_form).map_err(|e| e.to_string())?;
+        let mut exact = pcurve::exact_pcurves(&surface, &uses_of(&self.edges, &edge_loops, None)?, tol, parameter_box).map_err(|e| e.to_string())?;
         // On a form of many turns a closed form does not say which turn each of its ends is on:
         // an arc's two ends came out turns apart. An edge that goes round the axis (an arc, a
         // helix) takes its pcurve from its own angle, followed ([`wound::pcurve`]); a ruling,
@@ -1084,16 +1087,13 @@ impl<'t> Assembly<'t> {
             // A face that winds round its axis is on a form SMLib's trims hop sheets on.
             _ if wound && missing => Some(self.wound_pcurves(&label, &edge_loops, &exact)?),
             Some(trims) if missing => {
-                let domain = match box_on_form {
-                    Some(d) => d,
-                    None => natural_box(&surface).ok_or_else(|| unsupported("a face on an unbounded surface without closed-form pcurves"))?,
-                };
+                let domain = parameter_box.ok_or_else(|| unsupported("a face on an unbounded surface without closed-form pcurves"))?;
                 Some(trims.trims(&self.trim_face(&label, form.as_ref(), domain, &edge_loops, exact)?)?)
             }
             _ => None,
         };
         let mut pcs =
-            pcurve::pcurves_within(&surface, &uses_of(&self.edges, &edge_loops, made.as_ref())?, tol, box_on_form).map_err(|e| e.to_string())?;
+            pcurve::pcurves_within(&surface, &uses_of(&self.edges, &edge_loops, made.as_ref())?, tol, parameter_box).map_err(|e| e.to_string())?;
         // Each loop's uses are moved by whole turns (four form parameters) to run on from one
         // another, on the form that does not close.
         if wound {

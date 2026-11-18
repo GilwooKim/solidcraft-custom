@@ -1,0 +1,83 @@
+{
+  "ar": {
+    "help.file.export": "صدّر التصميم بتنسيق CAD أو شبكة مدعوم. اختر تنسيقًا مناسبًا للتطبيق الذي سيفتح الملف.",
+    "help.motion.interference": "تحقق من تداخل الأجزاء عند مواضع العينات في دراسة الحركة. استخدمه لاكتشاف التصادمات أثناء الحركة؛ قد لا تُكتشف التصادمات بين العينات.",
+    "ribbon.assembly.bom": "قائمة المواد",
+    "ribbon.inspect.minimum_radius": "أدنى نصف قطر",
+    "ribbon.luggage.envelope": "الأبعاد الخارجية",
+    "ribbon.luggage.tooling": "القوالب",
+    "ribbon.motion.check": "فحص الحركة"
+  },
+  "de": {
+    "help.file.export": "Exportiert den Entwurf in einem unterstützten CAD- oder Netzformat. Wählen Sie ein Format, das zur Anwendung passt, in der die Datei geöffnet wird.",
+    "help.motion.interference": "Prüft Bauteile an abgetasteten Positionen einer Bewegungsstudie auf Überschneidungen. Finden Sie damit Kollisionen während der Bewegung; Kollisionen zwischen Abtastpunkten können unerkannt bleiben.",
+    "ribbon.assembly.bom": "Stückliste",
+    "ribbon.inspect.minimum_radius": "Mindestradius",
+    "ribbon.luggage.envelope": "Außenmaße",
+    "ribbon.luggage.tooling": "Werkzeuge",
+    "ribbon.motion.check": "Bewegungscheck"
+  },
+  "en": {
+    "help.file.export": "Export the design in a supported CAD or mesh format. Choose a format suited to the application that will open it.",
+    "help.motion.interference": "Check for overlapping parts at sampled positions in a motion study. Use it to find collisions during movement; collisions between samples may be missed.",
+    "ribbon.assembly.bom": "BOM",
+    "ribbon.inspect.minimum_radius": "Min. Radius",
+    "ribbon.luggage.envelope": "Envelope",
+    "ribbon.luggage.tooling": "Tooling",
+    "ribbon.motion.check": "Motion Check"
+  },
+  "he": {
+    "help.file.export": "ייצוא התכנון לפורמט CAD או רשת נתמך. יש לבחור פורמט המתאים ליישום שבו ייפתח הקובץ.",
+    "help.motion.interference": "בדיקת חפיפה בין חלקים במיקומים שנדגמו במחקר תנועה. משמשת לאיתור התנגשויות במהלך התנועה; ייתכן שהתנגשויות בין הדגימות לא יתגלו.",
+    "ribbon.assembly.bom": "רשימת חומרים",
+    "ribbon.inspect.minimum_radius": "רדיוס מזערי",
+    "ribbon.luggage.envelope": "מידות חיצוניות",
+    "ribbon.luggage.tooling": "תבניות",
+    "ribbon.motion.check": "בדיקת תנועה"
+  },
+  "id": {
+    "help.file.export": "Ekspor desain dalam format CAD atau mesh yang didukung. Pilih format yang sesuai dengan aplikasi yang akan membukanya.",
+    "help.motion.interference": "Periksa tumpang tindih komponen pada posisi sampel dalam studi gerak. Gunakan untuk menemukan tabrakan selama gerakan; tabrakan di antara sampel dapat terlewat.",
+    "ribbon.assembly.bom": "Daftar Bahan",
+    "ribbon.inspect.minimum_radius": "Radius Min.",
+    "ribbon.luggage.envelope": "Dimensi Luar",
+    "ribbon.luggage.tooling": "Perkakas",
+    "ribbon.motion.check": "Cek Gerak"
+  },
+  "ja": {
+    "help.file.export": "設計を対応するCAD形式またはメッシュ形式で書き出します。ファイルを開くアプリケーションに適した形式を選んでください。",
+    "help.motion.interference": "モーションスタディのサンプル位置で部品の重なりを調べます。動作中の衝突を見つけるために使いますが、サンプル間の衝突は見逃す場合があります。",
+    "ribbon.assembly.bom": "部品表",
+    "ribbon.inspect.minimum_radius": "最小半径",
+    "ribbon.luggage.envelope": "外形寸法",
+    "ribbon.luggage.tooling": "金型",
+    "ribbon.motion.check": "動作確認"
+  },
+  "ko": {
+    "help.file.export": "설계를 지원되는 CAD 또는 메시 형식으로 내보냅니다. 파일을 열 프로그램에 맞는 형식을 선택하세요.",
+    "help.motion.interference": "동작 스터디의 샘플 위치에서 부품 간 겹침을 검사합니다. 움직이는 동안의 충돌을 찾을 때 사용하며, 샘플 사이의 충돌은 놓칠 수 있습니다.",
+    "ribbon.assembly.bom": "부품 목록",
+    "ribbon.inspect.minimum_radius": "최소 반지름",
+    "ribbon.luggage.envelope": "외형 치수",
+    "ribbon.luggage.tooling": "금형",
+    "ribbon.motion.check": "동작 검사"
+  },
+  "vi": {
+    "help.file.export": "Xuất thiết kế sang định dạng CAD hoặc lưới được hỗ trợ. Chọn định dạng phù hợp với ứng dụng sẽ mở tệp.",
+    "help.motion.interference": "Kiểm tra các chi tiết chồng lấn tại các vị trí lấy mẫu trong nghiên cứu chuyển động. Dùng để tìm va chạm khi chuyển động; có thể bỏ sót va chạm giữa các mẫu.",
+    "ribbon.assembly.bom": "DS vật tư",
+    "ribbon.inspect.minimum_radius": "BK tối thiểu",
+    "ribbon.luggage.envelope": "Kích thước bao",
+    "ribbon.luggage.tooling": "Khuôn",
+    "ribbon.motion.check": "Kiểm tra chuyển động"
+  },
+  "zh": {
+    "help.file.export": "将设计导出为支持的 CAD 或网格格式。请选择适合打开文件的应用程序的格式。",
+    "help.motion.interference": "检查运动研究中采样位置的零件重叠。用于发现运动中的碰撞，但可能遗漏采样点之间的碰撞。",
+    "ribbon.assembly.bom": "物料清单",
+    "ribbon.inspect.minimum_radius": "最小半径",
+    "ribbon.luggage.envelope": "外形尺寸",
+    "ribbon.luggage.tooling": "模具",
+    "ribbon.motion.check": "运动检查"
+  }
+}

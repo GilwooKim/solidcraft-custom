@@ -432,14 +432,14 @@ pub fn mesh_import_feature_in(bytes: &[u8], file: &str, mm_per_unit: f64) -> Res
     } else if ext == "ply" {
         ply::read_ply_mesh(bytes, &stem)?
     } else if ext == "stl" {
-        let tris = read_stl(bytes)?;
+        let (tris, warnings) = read_stl_with_warnings(bytes)?;
         if tris.is_empty() {
             return Err(IoError::Invalid("STL has no triangles".into()));
         }
         let positions: Vec<Vec3> = tris.iter().flatten().map(|v| Vec3::new(v[0] as f64, v[1] as f64, v[2] as f64)).collect();
         let n = u32::try_from(tris.len()).map_err(|_| IoError::Invalid("STL too large".into()))?;
         let triangles = (0..n).map(|i| [i * 3, i * 3 + 1, i * 3 + 2]).collect();
-        (vec![MeshObject { name: stem.clone(), positions, triangles, ..Default::default() }], Vec::new())
+        (vec![MeshObject { name: stem.clone(), positions, triangles, ..Default::default() }], warnings)
     } else {
         own_units("3MF")?;
         read_3mf(bytes)?
@@ -1342,20 +1342,35 @@ pub fn write_design(doc: &Document) -> Vec<u8> {
 
 /// Parse a binary or ASCII STL (used by tests and round-trip checks): triangles.
 pub fn read_stl(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
+    read_stl_with_warnings(bytes).map(|(triangles, _)| triangles)
+}
+
+/// Preserve recoverable triangles, but tell an importing caller when the file is incomplete.
+fn read_stl_with_warnings(bytes: &[u8]) -> Result<(Vec<[[f32; 3]; 3]>, Vec<String>)> {
     // Binary when the size matches the triangle count in the header (some binary files start
     // with "solid" too); ASCII when the text has facets.
     let count = bytes.get(80..84).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
-    let binary_size = count.is_some_and(|n| bytes.len() == 84 + n.saturating_mul(50));
+    let binary_size = count.and_then(|n| n.checked_mul(50)).and_then(|n| n.checked_add(84)) == Some(bytes.len());
     let head = String::from_utf8_lossy(bytes.get(..bytes.len().min(512)).unwrap_or_default()).to_string();
     let ascii = !binary_size && head.trim_start().starts_with("solid") && String::from_utf8_lossy(bytes).contains("facet");
     let mut tris = Vec::new();
+    let mut warnings = Vec::new();
     let ok = |v: &[f32; 3]| v.iter().all(|x| x.is_finite() && x.abs() < 1e9);
     if ascii {
         let s = String::from_utf8_lossy(bytes);
         let mut cur: Vec<[f32; 3]> = Vec::new();
+        let mut skipped = 0;
+        let mut in_facet = false;
         for l in s.lines() {
             let mut it = l.split_whitespace();
             match it.next() {
+                Some("facet") => {
+                    if in_facet || !cur.is_empty() {
+                        skipped += 1;
+                        cur.clear();
+                    }
+                    in_facet = true;
+                }
                 Some("vertex") => {
                     let v: Vec<f32> = it.filter_map(|x| x.parse().ok()).collect();
                     if let [x, y, z] = v[..] {
@@ -1368,8 +1383,11 @@ pub fn read_stl(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
                         && [a, b, c].iter().all(ok)
                     {
                         tris.push([a, b, c]);
+                    } else {
+                        skipped += 1;
                     }
                     cur.clear();
+                    in_facet = false;
                 }
                 _ => {}
             }
@@ -1377,11 +1395,25 @@ pub fn read_stl(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
                 return Err(IoError::Invalid(format!("STL with more than {MAX_STL_TRIANGLES} triangles")));
             }
         }
-        return Ok(tris);
+        if skipped > 0 || in_facet || !cur.is_empty() {
+            warnings.push(format!(
+                "STL skipped {skipped} invalid facets{}; the imported mesh may be incomplete.",
+                if !in_facet && cur.is_empty() { "" } else { " and an unfinished facet" }
+            ));
+        }
+        return Ok((tris, warnings));
     }
     let n = count.ok_or_else(|| IoError::Invalid("short STL".into()))?;
     // A wrong count in the header (some writers leave 0): use the triangles that are there.
     let room = bytes.len().saturating_sub(84) / 50;
+    if n != room {
+        warnings.push(format!(
+            "STL header declares {n} triangles, but the file contains {room} complete triangle records; check the source file before using this mesh."
+        ));
+    }
+    if !bytes.len().saturating_sub(84).is_multiple_of(50) {
+        warnings.push("STL ends with an incomplete triangle record or extra bytes; only complete triangle records were read.".into());
+    }
     let n = if n == 0 || n > room { room } else { n };
     if n == 0 {
         return Err(IoError::Invalid("STL has no triangles".into()));
@@ -1400,7 +1432,13 @@ pub fn read_stl(bytes: &[u8]) -> Result<Vec<[[f32; 3]; 3]>> {
             tris.push(t);
         }
     }
-    Ok(tris)
+    if tris.len() != n {
+        warnings.push(format!(
+            "STL skipped {} triangles with non-finite or out-of-range coordinates; the imported mesh may be incomplete.",
+            n - tris.len()
+        ));
+    }
+    Ok((tris, warnings))
 }
 
 /// Most triangles we read from one STL file.
@@ -1566,11 +1604,26 @@ mod tests {
         let mut bad = cube_stl(&[], b"x", None, [0.0; 3]);
         bad[84 + 12..84 + 16].copy_from_slice(&f32::INFINITY.to_le_bytes());
         assert_eq!(read_stl(&bad).unwrap().len(), 11);
+        assert!(!mesh_import_feature(&bad, "bad.stl").unwrap().warnings.is_empty());
+        let complete = cube_stl(&[], b"x", None, [0.0; 3]);
+        assert!(mesh_import_feature(&complete, "complete.stl").unwrap().warnings.is_empty());
+        let partial = &complete[..complete.len() - 25];
+        let recovered = mesh_import_feature(partial, "partial.stl").unwrap();
+        assert!(recovered.warnings.iter().any(|w| w.contains("12 triangles") && w.contains("11 complete")));
+        assert!(recovered.warnings.iter().any(|w| w.contains("incomplete triangle")));
+        let zero_count = cube_stl(&[], b"x", Some(0), [0.0; 3]);
+        assert_eq!(read_stl(&zero_count).unwrap().len(), 12);
+        assert!(!mesh_import_feature(&zero_count, "zero.stl").unwrap().warnings.is_empty());
         // ASCII with a non-UTF-8 name and a facet with a bad vertex.
         let mut ascii = b"solid caf\xe9\n".to_vec();
         ascii.extend(b"facet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\n");
         ascii.extend(b"facet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex nan 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid\n");
         assert_eq!(read_stl(&ascii).unwrap().len(), 1);
+        assert!(!mesh_import_feature(&ascii, "bad-ascii.stl").unwrap().warnings.is_empty());
+        let unfinished =
+            b"solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nfacet normal 0 0 1\nouter loop\n";
+        assert_eq!(read_stl(unfinished).unwrap().len(), 1);
+        assert!(mesh_import_feature(unfinished, "unfinished.stl").unwrap().warnings.iter().any(|w| w.contains("unfinished facet")));
         for b in [&b""[..], b"solid", &[0u8; 83], &[0xff; 200], &cube_stl(&[], b"x", Some(u32::MAX), [0.0; 3])[..]] {
             let r = std::panic::catch_unwind(|| read_stl(b).map(|t| t.len()));
             assert!(r.is_ok());

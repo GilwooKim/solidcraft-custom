@@ -5,6 +5,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={}", icon.display());
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CARGO_PKG_VERSION");
+    println!("cargo:rerun-if-env-changed=SOLIDCRAFT_VERSION");
     if std::env::var("CARGO_CFG_TARGET_OS")? != "windows" {
         return Ok(());
     }
@@ -20,13 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rc = out.join("solidcraft.rc");
     // Rust writes UTF-8; rc.exe otherwise uses the system code page for the icon path.
     let icon_line = format!("#pragma code_page(65001)\n1 ICON \"{}\"\n", copy.display().to_string().replace('\\', "/"));
-    std::fs::write(&rc, format!("{icon_line}{}", version_resource(&std::env::var("CARGO_PKG_VERSION")?)))?;
+    let version = std::env::var("SOLIDCRAFT_VERSION").ok().filter(|v| !v.is_empty()).unwrap_or(std::env::var("CARGO_PKG_VERSION")?);
+    std::fs::write(&rc, format!("{icon_line}{}", version_resource(&version)))?;
     embed_resource::compile_for(&rc, ["solidcraft"], embed_resource::NONE).manifest_required()?;
     Ok(())
 }
 
 /// The Windows version resource (what Explorer's Details tab shows and what a launcher reads).
-/// `FileVersion` and `ProductVersion` are the package version verbatim (`0.25.1`, `0.26.0-rc.1`):
+/// `FileVersion` and `ProductVersion` are the release version verbatim (`0.25.1`, `0.26.0-rc.1`),
+/// falling back to the package version when no release override is set:
 /// ArtCraft's launcher parses the `ProductVersion` string as semver, so a fourth `.0` would not
 /// read. The binary `FILEVERSION` fields need four numbers and take the leading `major.minor.patch`.
 fn version_resource(version: &str) -> String {

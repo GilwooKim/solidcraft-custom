@@ -40,6 +40,25 @@ pub const MAX_PACKAGE: u64 = 1 << 30;
 /// Nor a single file inside the portable zip.
 const MAX_UNZIPPED: u64 = 1 << 30;
 
+/// Runtime and licence files shipped beside the Windows application.
+const PORTABLE_COMPANIONS: &[&str] = &[
+    "solidcraft-cli.exe",
+    "concrt140.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "vccorlib140.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "vcruntime140_threads.dll",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "NOTICE",
+    "THIRD-PARTY-LICENSES.txt",
+];
+
 /// The host's HTTPS download to a file: calls `progress(done, total)` as it goes and stops when
 /// that returns false.
 pub type HttpDownload = Arc<dyn Fn(&str, &Path, &dyn Fn(u64, Option<u64>) -> bool) -> Result<(), FetchError> + Send + Sync>;
@@ -305,24 +324,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
             let name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "solidcraft.exe".into());
             // The per-user installer carries the VC runtime app-locally. Keep it and the
             // licence notices in step with the new binaries; older packages may omit them.
-            let files = [
-                name.as_str(),
-                "solidcraft-cli.exe",
-                "concrt140.dll",
-                "msvcp140.dll",
-                "msvcp140_1.dll",
-                "msvcp140_2.dll",
-                "msvcp140_atomic_wait.dll",
-                "msvcp140_codecvt_ids.dll",
-                "vccorlib140.dll",
-                "vcruntime140.dll",
-                "vcruntime140_1.dll",
-                "vcruntime140_threads.dll",
-                "LICENSE-MIT",
-                "LICENSE-APACHE",
-                "NOTICE",
-                "THIRD-PARTY-LICENSES.txt",
-            ];
+            let files = std::iter::once(name.as_str()).chain(PORTABLE_COMPANIONS.iter().copied());
             let mut extracted = Vec::new();
             for file in files {
                 let to = dir.join(format!("{file}.update"));
@@ -331,6 +333,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
                     Ok(false) if file == name => return Err(format!("the portable zip has no {file}")),
                     Ok(false) => {}
                     Err(e) => {
+                        let _ = std::fs::remove_file(&to);
                         for (_, t) in &extracted {
                             let _ = std::fs::remove_file(t);
                         }
@@ -338,15 +341,92 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
                     }
                 }
             }
+            swap_package(&extracted)?;
             let _ = std::fs::remove_file(package);
-            for (target, new) in &extracted {
-                swap(target, new)?;
-            }
             Ok(Outcome::Restart(exe.clone()))
         }
         Method::Msi => Ok(Outcome::Installer(PathBuf::from("msiexec"), vec!["/i".into(), package.to_string_lossy().to_string(), "/passive".into()])),
         Method::Dmg => Ok(Outcome::Opened(package.to_path_buf())),
     }
+}
+
+/// Replace one package as a group. Prior files remain available until every rename succeeds.
+/// This rolls back reported filesystem errors; it does not claim power-loss atomicity.
+fn swap_package(files: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    swap_package_with(files, |from, to| std::fs::rename(from, to))
+}
+
+/// The rename boundary lets regression tests fail a later replacement deterministically.
+pub(super) fn swap_package_with(files: &[(PathBuf, PathBuf)], mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>) -> Result<(), String> {
+    struct Replaced {
+        target: PathBuf,
+        backup: Option<PathBuf>,
+        installed: bool,
+    }
+    let mut replaced: Vec<Replaced> = Vec::new();
+    let result = (|| {
+        // An unfinished recovery must not be erased by another update attempt.
+        for (target, new) in files {
+            let backup = sibling(target, ".update-backup")?;
+            if backup.exists() {
+                return Err(format!("previous update recovery file exists: {}", backup.display()));
+            }
+            for path in [target, new] {
+                match std::fs::symlink_metadata(path) {
+                    Ok(meta) if !meta.file_type().is_file() => return Err(format!("not a regular update file: {}", path.display())),
+                    Ok(_) => {}
+                    Err(e) if path == target && e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("checking {}: {e}", path.display())),
+                }
+            }
+        }
+        for (target, new) in files {
+            let backup = if target.exists() {
+                let backup = sibling(target, ".update-backup")?;
+                rename(target, &backup).map_err(|e| format!("moving {} aside: {e}", target.display()))?;
+                Some(backup)
+            } else {
+                None
+            };
+            replaced.push(Replaced { target: target.clone(), backup, installed: false });
+            rename(new, target).map_err(|e| format!("putting the new {} in place: {e}", target.display()))?;
+            if let Some(last) = replaced.last_mut() {
+                last.installed = true;
+            }
+        }
+        Ok(())
+    })();
+    if let Err(mut error) = result {
+        for item in replaced.iter().rev() {
+            if item.installed
+                && let Err(e) = std::fs::remove_file(&item.target)
+            {
+                error.push_str(&format!("; rollback could not remove {}: {e}", item.target.display()));
+                continue;
+            }
+            if let Some(backup) = &item.backup
+                && let Err(e) = rename(backup, &item.target)
+            {
+                error.push_str(&format!("; rollback retained {}: {e}", backup.display()));
+            }
+        }
+        for (_, new) in files {
+            let _ = std::fs::remove_file(new);
+        }
+        return Err(error);
+    }
+    // A running Windows image may not be deleted yet. Mark only committed backups as .old,
+    // so startup cleanup can never delete a backup retained after a failed rollback.
+    for item in replaced {
+        if let Some(backup) = item.backup
+            && std::fs::remove_file(&backup).is_err()
+            && let Ok(old) = sibling(&item.target, ".old")
+        {
+            let _ = std::fs::remove_file(&old);
+            let _ = rename(&backup, &old);
+        }
+    }
+    Ok(())
 }
 
 /// `path` with `suffix` appended to its file name, in the same folder.
@@ -415,9 +495,10 @@ fn make_executable(_: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// At start: delete the executable a previous update moved aside (`solidcraft.exe.old`).
+/// At start: delete committed application and companion backups; keep failed recovery files.
 pub fn clean_up_after_update(exe: Option<&Path>) {
-    for file in [exe.map(Path::to_path_buf), exe.and_then(|e| e.parent()).map(|d| d.join("solidcraft-cli.exe"))].into_iter().flatten() {
+    let companions = exe.into_iter().filter_map(|e| e.parent()).flat_map(|dir| PORTABLE_COMPANIONS.iter().map(move |name| dir.join(name)));
+    for file in exe.map(Path::to_path_buf).into_iter().chain(companions) {
         if let Ok(old) = sibling(&file, ".old")
             && old.exists()
         {

@@ -10,6 +10,7 @@ jobs:
     runs-on: windows-2025
     env:
       CARGO_BUILD_JOBS: '2'
+      RUST_MIN_STACK: '8388608'
     steps:
       - uses: actions/checkout@v4
       - name: Validate release version
@@ -17,6 +18,7 @@ jobs:
         run: |
           $version = (Get-Content packaging/windows/custom-version.txt -Raw).Trim()
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and custom-version.txt must match.' }
+          "SOLIDCRAFT_VERSION=$version" >> $env:GITHUB_ENV
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.99.1
@@ -29,6 +31,40 @@ jobs:
       - name: Verify update behavior
         run: |
           cargo test --locked --profile ci --lib -p solidcraft-ui-egui update::
+      - name: Verify workbench and language settings
+        shell: pwsh
+        run: |
+          cargo test --locked --profile ci --lib -p solidcraft-engine luggage::tests
+          if ($LASTEXITCODE -ne 0) { throw 'Workbench command tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui luggage
+          if ($LASTEXITCODE -ne 0) { throw 'Workbench interface tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui generic_export_
+          if ($LASTEXITCODE -ne 0) { throw 'Export picker tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui custom_install_languages_switch_and_persist
+          if ($LASTEXITCODE -ne 0) { throw 'Language preference tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui every_complete_catalog_carries_every_english_message
+          if ($LASTEXITCODE -ne 0) { throw 'Translation coverage tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-ui-egui every_file_format_label_is_in_the_english_catalog
+          if ($LASTEXITCODE -ne 0) { throw 'File format label coverage tests failed.' }
+          cargo test --locked --profile ci -p xtask installer_languages_cannot_regress_to_partial_catalogs
+          if ($LASTEXITCODE -ne 0) { throw 'Required installer language coverage tests failed.' }
+          cargo test --locked --profile ci -p solidcraft --bin solidcraft installer_language_is_only_a_first_run_default
+          if ($LASTEXITCODE -ne 0) { throw 'Installer language tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-io stl_quirks_read_cleanly
+          if ($LASTEXITCODE -ne 0) { throw 'STL damage reporting tests failed.' }
+          cargo test --locked --profile ci --lib -p solidcraft-io formats::tests
+          if ($LASTEXITCODE -ne 0) { throw 'File compatibility registry tests failed.' }
+      - name: Verify STEP curve recovery
+        shell: pwsh
+        run: |
+          cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore --lib nurbs::crv_fit::p1
+          if ($LASTEXITCODE -ne 0) { throw 'Curve interpolation tests failed.' }
+          cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore --lib topology::edgeuse::p3
+          if ($LASTEXITCODE -ne 0) { throw 'Boundary interpolation tests failed.' }
+          cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore --lib pcurve
+          if ($LASTEXITCODE -ne 0) { throw 'Surface curve domain tests failed.' }
+          cargo test --locked --manifest-path solidcore/Cargo.toml -p solidcore-step --lib
+          if ($LASTEXITCODE -ne 0) { throw 'STEP reader and writer tests failed.' }
       - name: Smoke test modeling and export
         shell: pwsh
         run: |
@@ -52,7 +88,7 @@ jobs:
         with:
           name: windows-installers
           path: release
-      - name: Publish verified release files
+      - name: Publish release candidate files
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -62,4 +98,4 @@ jobs:
           test -n "$sums"
           cd "$(dirname "$sums")"
           sha256sum --check SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" ./* --verify-tag --title "SolidCraft Custom $RELEASE_TAG" --generate-notes
+          gh release create "$RELEASE_TAG" ./* --verify-tag --prerelease --latest=false --title "SolidCraft Custom $RELEASE_TAG" --generate-notes
